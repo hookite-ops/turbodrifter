@@ -1,6 +1,6 @@
 // 카트 주행 물리 — 드리프트/게이지/부스터/순간 부스터/출발 부스터
 // 순수 계산 모듈(화면 코드 없음). 플레이어와 AI가 같은 물리를 쓴다.
-import { locate } from './tracks.js';
+import { locate, moverAt } from './tracks.js';
 
 export const KMH = 6.6;            // 표시 속도 = m/s × KMH
 export const C = {
@@ -20,7 +20,7 @@ export const C = {
   driftMinSpeed: 10,
   gaugeRate: 0.95,
   boostTime: 3.0, instTime: 0.62, instWindow: 0.5, startBoostTime: 1.6,
-  radius: 1.15,
+  radius: 1.15, gravity: 26,
 };
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
@@ -40,7 +40,7 @@ export function createKart() {
     drifting: false, driftDir: 0, driftT: 0, slip: 0, kick: 0, armed: false, pendDir: 0,
     gauge: 0, boosts: 0, boostT: 0, instT: 0, instWin: 0,
     ti: 0, lat: 0, s: 0, lap: -1, prog: 0, wrongT: 0,
-    hitT: 0, padT: 0, airT: 0,
+    hitT: 0, padT: 0, airT: 0, air: false, vy: 0, surf: 0, bumpT: 0,
     finished: false, finishTime: 0,
     ev: {},   // 이번 프레임에 일어난 일 (효과음·이펙트용)
     _loc: {},
@@ -49,17 +49,21 @@ export function createKart() {
 
 export function placeKart(k, T, p) {
   k.x = p.x; k.z = p.z; k.y = p.y; k.h = p.h; k.mv = p.h; k.speed = 0;
-  k.ti = p.i; k.drifting = false; k.steer = 0; k.slip = 0; k.kick = 0;
+  k.ti = p.i; k.drifting = false; k.steer = 0; k.slip = 0; k.kick = 0; k.air = false; k.vy = 0;
   const L = locate(T, k.x, k.z, k.ti, 30, k._loc);
   k.ti = L.i; k.s = L.s; k.lat = L.lat;
 }
 
 const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 // inp: {steer(-1..1, +왼쪽), accel, brake, drift, driftTap, boostTap, accelTap}
-// rule: {infinite}
+// rule: {infinite, time(경기 시간 — 움직이는 장애물 위치)}
 export function stepKart(k, inp, dt, T, rule) {
   const ev = k.ev = {};
   const inf = rule && rule.infinite;
+  const air = k.air;
+  const surf = air ? 0 : T.surf[k.ti];          // 1 빙판, 2 물
+  const ice = surf === 1, water = surf === 2;
+  k.surf = surf;
 
   // 조향 입력 (키보드는 디지털이라 아주 짧게만 다듬는다)
   const target = clamp(inp.steer || 0, -1, 1);
@@ -92,7 +96,7 @@ export function stepKart(k, inp, dt, T, rule) {
     else k.pendDir = dirKey;                                                                      // 반대로 바로 이어 치기
     k.armed = false;
   }
-  if (!k.drifting && canDrift && dirKey && (k.armed || k.pendDir === dirKey)) {
+  if (!k.drifting && canDrift && !air && dirKey && (k.armed || k.pendDir === dirKey)) {
     k.drifting = true; k.driftDir = dirKey; k.driftT = 0; k.armed = false; k.pendDir = 0; ev.driftStart = true;
     k.kick = Math.max(0, C.driftKick - Math.max(0, k.slip * dirKey));
   }
@@ -108,22 +112,23 @@ export function stepKart(k, inp, dt, T, rule) {
     let mag = Math.max(0, k.slip * d);
     const into = dirKey === d, counter = dirKey === -d;
     if (k.kick > 0) { const a = Math.min(k.kick, C.driftKickRate * dt); mag += a; k.kick -= a; }
-    if (counter) { mag -= C.slipCut * dt; k.kick = 0; }                                // 커팅
+    if (air) { /* 공중: 각 유지 */ }
+    else if (counter) { mag -= C.slipCut * dt; k.kick = 0; }                           // 커팅
     else if (inp.drift) mag += C.driftDeepen * dt;                                     // Shift를 누르는 동안 더 깊게
-    else if (into) mag -= C.slipHold * dt;                                             // 방향키 유지: 끌기
-    else mag -= C.slipFree * dt;                                                       // 손을 떼면 서서히 복귀
+    else if (into) mag -= C.slipHold * (ice ? 0.35 : 1) * dt;                          // 방향키 유지: 끌기 (빙판은 더 오래)
+    else mag -= C.slipFree * (ice ? 0.45 : 1) * dt;                                    // 손을 떼면 서서히 복귀
     mag = clamp(mag, 0, C.maxSlip);
-    const turn = driftTurn(mag) * clamp(mag / 0.2, 0, 1) * (counter ? 0.35 : into ? 1.1 : 0.42);
+    const turn = driftTurn(mag) * clamp(mag / 0.2, 0, 1) * (counter ? 0.35 : into ? 1.1 : 0.42) * (air ? 0.3 : 1);
     k.mv += d * turn * sf * dt;
     k.slip = d * mag;
     k.h = k.mv + k.slip;
     k.yawVel = d * turn;
   } else {
-    const yaw = k.steer * gripYaw(Math.abs(k.speed)) * sf;
+    const yaw = k.steer * gripYaw(Math.abs(k.speed)) * sf * (air ? 0.35 : 1);
     k.yawVel = yaw;
     k.h += yaw * dt;
     let sl = wrap(k.h - k.mv);
-    k.mv += sl * Math.min(1, C.followGrip * dt);
+    k.mv += sl * Math.min(1, (air ? 0.6 : ice ? 2.6 : C.followGrip) * dt);   // 빙판은 미끄러진다
     k.slip = wrap(k.h - k.mv);
   }
   const slip = k.slip;
@@ -133,26 +138,31 @@ export function stepKart(k, inp, dt, T, rule) {
   if (boosting) { vmax = C.boostSpeed; acc = C.boostAccel; }
   else if (inst) { vmax = C.instSpeed; acc = C.instAccel; }
   if (k.padT > 0) { k.padT -= dt; vmax = Math.max(vmax, C.boostSpeed); acc = Math.max(acc, C.boostAccel); }
+  if (water) { vmax *= 0.6; acc *= 0.7; }                     // 물웅덩이: 느려진다
+  if (k.bumpT > 0) k.bumpT -= dt;
   const slopeAcc = -(k._loc.slope || 0) * 9 * Math.cos(wrap(k.mv - Math.atan2(k._loc.tx || 0, k._loc.tz || 1)));
   const throttle = inp.accel || boosting || inst;
-  if (inp.brake && !boosting) {
+  if (air) {
+    k.speed -= k.speed * 0.05 * dt;                           // 공중: 가속·감속 없음
+  } else if (inp.brake && !boosting) {
     if (k.speed > 0.5) k.speed -= C.brake * dt;
     else k.speed = Math.max(-C.reverse, k.speed - 12 * dt);
   } else if (throttle) {
     if (k.speed < 0) k.speed += C.brake * dt;
     else if (k.speed < vmax) k.speed += acc * Math.cos(slip) * (k.drifting ? C.driftThrust : 1) * (1 - 0.55 * (k.speed / vmax) ** 2) * dt;
-    else k.speed -= Math.min(k.speed - vmax, 9 * dt); // 부스터가 끝나면 서서히 감속
+    else k.speed -= Math.min(k.speed - vmax, (water ? 30 : 9) * dt); // 부스터가 끝나면 서서히 감속
   } else {
     const d = C.coast * dt;
     k.speed = Math.abs(k.speed) < d ? 0 : k.speed - Math.sign(k.speed) * d;
   }
-  if (k.speed > 0) k.speed += slopeAcc * dt * 0.5;
+  if (k.speed > 0 && !air) k.speed += slopeAcc * dt * 0.5;
+  if (water && k.speed > vmax) k.speed -= (k.speed - vmax) * 2.5 * dt;
   if (k.drifting) k.speed -= k.speed * C.driftDrag * Math.sin(slip) ** 2 * dt;
 
   // --- 드리프트 게이지 ---
   if (k.drifting) {
     // 오래 끌수록 충전 효율이 떨어진다 (짧게 끊어 치는 편이 유리)
-    const g = C.gaugeRate * Math.abs(slip) * clamp(k.speed / C.maxSpeed, 0, 1.2) / (1 + Math.max(0, k.driftT - 0.6) * 0.9) * (inf ? 3.2 : 1);
+    const g = C.gaugeRate * (ice ? 1.3 : 1) * Math.abs(slip) * clamp(k.speed / C.maxSpeed, 0, 1.2) / (1 + Math.max(0, k.driftT - 0.6) * 0.9) * (inf ? 3.2 : 1);
     addGauge(k, g * dt, ev, inf);
     if ((Math.abs(slip) < 0.04 && k.kick <= 0 && k.driftT > 0.08) || k.speed < 6) {
       k.drifting = false; ev.driftEnd = true; k.slip = 0; k.h = k.mv;
@@ -166,6 +176,7 @@ export function stepKart(k, inp, dt, T, rule) {
   k.z += Math.cos(k.mv) * k.speed * dt;
 
   // --- 트랙 위치·벽 충돌 ---
+  const prevTi = k.ti;
   const L = locate(T, k.x, k.z, k.ti, 14, k._loc);
   const prevS = k.s;
   k.ti = L.i; k.s = L.s; k.lat = L.lat;
@@ -195,12 +206,33 @@ export function stepKart(k, inp, dt, T, rule) {
     }
   }
   if (k.hitT > 0) k.hitT -= dt;
-  k.y = L.y;
+
+  // --- 높이: 점프대 끝에서 날아오르고, 중력으로 떨어진다 ---
+  if (k.air) {
+    k.vy -= C.gravity * dt; k.y += k.vy * dt; k.airT += dt;
+    if (k.y <= L.y) {
+      ev.land = Math.max(0.1, -k.vy); k.y = L.y; k.air = false; k.vy = 0;
+      if (ev.land > 11) k.speed *= 0.94;
+    }
+  } else if (T.ramp[prevTi] && !T.ramp[k.ti] && k.speed > 6 && k.ti !== prevTi) {
+    const pi = (prevTi + T.n - 1) % T.n;
+    k.vy = k.speed * Math.max(0.05, (T.y[prevTi] - T.y[pi]) / T.ds);
+    k.y = T.y[prevTi]; k.air = true; k.airT = 0; ev.jump = k.vy;
+  } else k.y = L.y;
+
+  // --- 장애물 ---
+  if (!k.air || k.y - L.y < 1.1) {
+    for (const o of T.obs) bumpInto(k, T, L, o.s, o.lat, o.r, o.soft, ev);
+    if (T.movers.length) {
+      const tm = rule && rule.time || 0;
+      for (const m of T.movers) { moverAt(T, m, tm, _mp); if (_mp.edge > 0.5) bumpInto(k, T, L, _mp.s, _mp.lat, m.r, m.soft, ev); }
+    }
+  }
 
   // --- 부스터 발판 ---
   for (const p of T.pads) {
     let di = k.ti - p.i; if (di < 0) di += T.n;
-    if (di < p.len && Math.abs(k.lat) < 3.2 && k.speed > 3) {
+    if (di < p.len && Math.abs(k.lat - p.lat) < 3.2 && k.speed > 3 && !k.air) {
       if (k.padT <= 0) ev.pad = true;
       k.padT = 1.1;
     }
@@ -213,6 +245,30 @@ export function stepKart(k, inp, dt, T, rule) {
   k.prog = k.lap * T.length + k.s;
   const along = Math.sin(k.mv) * L.tx + Math.cos(k.mv) * L.tz;
   if (along < -0.35 && k.speed > 4) k.wrongT += dt; else k.wrongT = 0;
+}
+
+const _mp = {};
+// 원형 장애물(트랙 좌표 s, lat)과 부딪히기. soft = 짚더미·회전초처럼 밀리며 덜 손해
+function bumpInto(k, T, L, s, lat, r, soft, ev) {
+  let dsx = k.s - s; const half = T.length / 2;
+  if (dsx > half) dsx -= T.length; else if (dsx < -half) dsx += T.length;
+  const R = r + C.radius * 0.9;
+  if (dsx > R || dsx < -R) return;
+  const dl = k.lat - lat, d = Math.hypot(dsx, dl);
+  if (d >= R) return;
+  const ux = d > 1e-4 ? dsx / d : -1, ul = d > 1e-4 ? dl / d : 0;
+  const nx = L.tx * ux + L.nx * ul, nz = L.tz * ux + L.nz * ul;   // 장애물 → 카트 방향
+  k.x += nx * (R - d); k.z += nz * (R - d);
+  const vx = Math.sin(k.mv) * k.speed, vz = Math.cos(k.mv) * k.speed, vn = vx * nx + vz * nz;
+  if (vn >= 0) return;
+  const e = soft ? 1.1 : 1.45;
+  const nvx = vx - nx * vn * e, nvz = vz - nz * vn * e, ns = Math.hypot(nvx, nvz);
+  const loss = soft ? clamp(-vn / 40, 0.05, 0.3) : clamp(-vn / 26, 0.08, 0.5);
+  if (k.speed >= 0) { k.mv = Math.atan2(nvx, nvz); k.speed = ns * (1 - loss); }
+  else k.speed *= 1 - loss;
+  if (k.drifting && -vn > 6) { k.drifting = false; k.driftT = 0; k.kick = 0; k.slip = 0; ev.driftEnd = true; }
+  k.h = k.mv + (k.drifting ? k.slip : wrap(k.h - k.mv) * 0.5);
+  if (k.bumpT <= 0) { ev.bump = { v: -vn, soft }; k.bumpT = 0.25; }
 }
 
 function addGauge(k, g, ev, inf) {
@@ -247,7 +303,7 @@ export function pushApart(k, ox, oz, oy, ovx, ovz) {
 export function createBot(skill = 0.8, lag = null) {
   return { skill, lane: (Math.random() - 0.5) * 6, phase: 0, holdT: 0, wasDrift: false, instDelay: 0, boostWait: 0, stuckT: 0, revT: 0, t: Math.random() * 10, lag: lag == null ? (1 - skill) * 0.12 : lag, q: [] };
 }
-export function botInput(b, k, T, dt) {
+export function botInput(b, k, T, dt, time = 0) {
   b.t += dt;
   const N = T.n;
   const look = 7 + k.speed * 0.45;
@@ -257,7 +313,24 @@ export function botInput(b, k, T, dt) {
   for (let j = 0; j < 14; j++) cAhead += T.curv[(k.ti + 4 + j * 2) % N];
   cAhead /= 14;
   const apex = clamp(cAhead * 120, -1, 1) * T.hw[li] * (0.12 + b.skill * 0.2);   // 코너 안쪽으로 살짝 붙기
-  const tl = clamp(lane * 0.4 + apex, -(T.hw[li] - 2.6), T.hw[li] - 2.6);
+  let tl = clamp(lane * 0.4 + apex, -(T.hw[li] - 2.6), T.hw[li] - 2.6);
+  // 앞의 장애물 피하기 (실력이 낮을수록 늦게 본다)
+  if (T.obs.length || T.movers.length) {
+    const see = 10 + k.speed * (0.7 + b.skill * 0.6), room = T.hw[li] - 2.2;
+    const avoid = (s, lat, r) => {
+      let d = s - k.s; if (d < -T.length / 2) d += T.length; else if (d > T.length / 2) d -= T.length;
+      if (d < -1 || d > see) return;
+      const need = r + 2.3;
+      if (Math.abs(tl - lat) >= need) return;
+      const L1 = lat + need, R1 = lat - need;
+      const okL = L1 < room, okR = R1 > -room;
+      tl = okL && okR ? (Math.abs(L1 - tl) < Math.abs(R1 - tl) ? L1 : R1) : okL ? L1 : okR ? R1 : tl;
+    };
+    for (let pass = 0; pass < 2; pass++) {
+      for (const o of T.obs) avoid(o.s, o.lat, o.r);
+      for (const m of T.movers) { moverAt(T, m, time + 0.4, _mp); if (_mp.edge > 0.3) avoid(_mp.s, _mp.lat, m.r + (m.type === 'cross' ? Math.abs(m.a) * 0.3 : 0)); }
+    }
+  }
   const tx = T.x[li] + T.nx[li] * tl, tz = T.z[li] + T.nz[li] * tl;
   const des = Math.atan2(tx - k.x, tz - k.z);
   const err = wrap(des - k.mv);

@@ -1,6 +1,8 @@
 // 트랙 3D 세계 만들기 — 도로, 벽, 기둥, 배경 소품
 import * as THREE from '../lib/three.bundle.js';
 import { GLTFLoader } from '../lib/three.bundle.js';
+import { buildFeatures } from './features.js';
+import { moverModels } from './movers.js';
 
 // ----- 랜드마크 (Tripo로 만든 모델) -----
 // at: 트랙 위치(0~1), side: 왼쪽 +1 / 오른쪽 -1, off: 벽에서 떨어진 거리(m), h: 높이(m)
@@ -32,7 +34,11 @@ function loadLandmark(name) {
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
       mat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0x99ccff, emissive: 0x16324a });
     }
-    return { geo, mat, height: bb.max.y - bb.min.y, minY: bb.min.y };
+    // 바닥 근처(아래 15%) 꼭짓점의 폭 — 좁은 자리에 맞춰 세울 때 쓴다
+    const P = geo.attributes.position, lim = bb.min.y + (bb.max.y - bb.min.y) * 0.15; let bw = 0;
+    const cxm = (bb.min.x + bb.max.x) / 2, czm = (bb.min.z + bb.max.z) / 2;
+    for (let i = 0; i < P.count; i++) if (P.getY(i) < lim) bw = Math.max(bw, Math.hypot(P.getX(i) - cxm, P.getZ(i) - czm));
+    return { geo, mat, height: bb.max.y - bb.min.y, minY: bb.min.y, baseR: bw || (bb.max.x - bb.min.x) / 2, cx: cxm, cz: czm };
   }).catch(e => { console.warn(name + ' 랜드마크 로드 실패', e); return null; });
   return lmCache[name];
 }
@@ -143,37 +149,56 @@ export function buildWorld(T, opt = {}) {
   // 도로 가장자리까지의 거리와, 그 근처 도로의 높이(겹치는 곳은 낮은 쪽)
   const cd = [], cy = [];
   const trackInfo = (x, z) => {
-    const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL); let n = 0, best = 1e9;
+    const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL); let n = 0, best = 1e9, bi = 0;
     for (let a = -4; a <= 4; a++) for (let b = -4; b <= 4; b++) {
       const l = grid.get((gx + a) + ',' + (gz + b)); if (!l) continue;
-      for (const i of l) { const d = Math.hypot(T.x[i] - x, T.z[i] - z) - T.hw[i]; cd[n] = d; cy[n++] = T.y[i]; if (d < best) best = d; }
+      for (const i of l) { const d = Math.hypot(T.x[i] - x, T.z[i] - z) - T.hw[i]; cd[n] = d; cy[n++] = T.y[i]; if (d < best) { best = d; bi = i; } }
     }
-    if (!n) return [90, 0];
+    if (!n) return [90, 0, 0];
     let base = 1e9; for (let i = 0; i < n; i++) if (cd[i] <= best + 7 && cy[i] < base) base = cy[i];
-    return [best, base];
+    return [best, base, T.cliff[bi]];
   };
 
+  // 개울(도로를 가로지르는 물길)과 절벽 정보
+  const streams = [];
+  for (const z of T.zones) if (z.kind === 'water' && z.style === 'stream') {
+    const i = (z.i + (z.cnt >> 1)) % N; let yw = 1e9; for (let q = 0; q <= z.cnt; q++) yw = Math.min(yw, T.y[(z.i + q) % N]);
+    streams.push({ x: T.x[i], z: T.z[i], tx: T.tx[i], tz: T.tz[i], half: z.cnt * T.ds / 2 + 1, y: yw + 0.04 });
+  }
+  const streamCut = (x, z, h) => {
+    for (const st of streams) {
+      const a = Math.abs((x - st.x) * st.tx + (z - st.z) * st.tz);
+      if (a < st.half + 9) { const k = 1 - smooth(st.half - 1, st.half + 9, a); h = h * (1 - k) + Math.min(h, st.y - 1.6) * k; }
+    }
+    return h;
+  };
   // ----- 지형 (도로 옆은 도로 높이에 붙고, 멀어질수록 언덕) -----
   const perm = new Float32Array(4096); for (let i = 0; i < 4096; i++) perm[i] = R();
   const hsh = (ix, iz) => perm[((ix * 73856093) ^ (iz * 19349663)) & 4095];
   const vn = (x, z) => { const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz, u = fx * fx * (3 - 2 * fx), v = fz * fz * (3 - 2 * fz); const a = hsh(ix, iz), b = hsh(ix + 1, iz), c = hsh(ix, iz + 1), d = hsh(ix + 1, iz + 1); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; };
   const noise = (x, z) => vn(x / 95, z / 95) * 0.65 + vn(x / 33, z / 33) * 0.35;
-  const heightFrom = (x, z, edge, base) => base * (1 - smooth(12, 75, edge)) - 0.45 * (1 - smooth(2.5, 9, edge)) + smooth(5, 60, edge) * (noise(x, z) - 0.33) * th.amp;
-  const heightAt = (x, z) => { const [e, b] = trackInfo(x, z); return heightFrom(x, z, e, b); };
+  const heightFrom = (x, z, edge, base, cl = 0) => {
+    let h = base * (1 - smooth(12, 75, edge)) - 0.45 * (1 - smooth(2.5, 9, edge)) + smooth(5, 60, edge) * (noise(x, z) - 0.33) * th.amp;
+    if (cl > 0) h += cl * (smooth(0.8, 7, edge) * (14 + noise(x * 2, z * 2) * 16) * (1 - smooth(45, 90, edge) * 0.5));   // 절벽: 도로 바로 옆에서 솟는다
+    return streams.length ? streamCut(x, z, h) : h;
+  };
+  const heightAt = (x, z) => { const [e, b, c] = trackInfo(x, z); return heightFrom(x, z, e, b, c); };
   {
     const PAD = 280, STEP = 7;
     const x0 = minX - PAD, z0 = minZ - PAD, nx = Math.ceil((maxX - minX + PAD * 2) / STEP), nz = Math.ceil((maxZ - minZ + PAD * 2) / STEP);
     const pos = new Float32Array((nx + 1) * (nz + 1) * 3), col = new Float32Array((nx + 1) * (nz + 1) * 3), idx = [];
+    const _rock = new THREE.Color();
     const c1 = new THREE.Color(th.ground), c2 = new THREE.Color(th.ground2), cs = new THREE.Color(th.shoulder), c = new THREE.Color();
     let p = 0;
     for (let iz = 0; iz <= nz; iz++) for (let ix = 0; ix <= nx; ix++) {
-      const x = x0 + ix * STEP, z = z0 + iz * STEP, [edge, base] = trackInfo(x, z);
+      const x = x0 + ix * STEP, z = z0 + iz * STEP, [edge, base, cl] = trackInfo(x, z);
       const fade = Math.min(smooth(0, 60, ix * STEP), smooth(0, 60, (nx - ix) * STEP), smooth(0, 60, iz * STEP), smooth(0, 60, (nz - iz) * STEP));
-      const h = heightFrom(x, z, edge, base) * (edge > 60 ? fade : 1);
+      const h = heightFrom(x, z, edge, base, cl) * (edge > 60 ? fade : 1);
       pos[p] = x; pos[p + 1] = h; pos[p + 2] = z;
       const n2 = vn(x / 17, z / 17);
       c.copy(c1).lerp(c2, smooth(0.25, 0.75, n2 * 0.6 + noise(x + 300, z - 200) * 0.4));
       c.lerp(cs, (1 - smooth(1.5, 7, edge)) * 0.85);
+      if (cl > 0) c.lerp(_rock.set(th.cliff || th.mount), cl * smooth(1, 4, edge) * (0.75 + 0.25 * n2));
       const lit = 0.92 + n2 * 0.16; col[p] = c.r * lit; col[p + 1] = c.g * lit; col[p + 2] = c.b * lit; p += 3;
     }
     for (let iz = 0; iz < nz; iz++) for (let ix = 0; ix < nx; ix++) { const a = iz * (nx + 1) + ix, b = a + 1, d = a + nx + 1, e = d + 1; idx.push(a, d, b, b, d, e); }
@@ -224,6 +249,10 @@ export function buildWorld(T, opt = {}) {
     if (pillars.length) g.add(instanced(box, deckMat, pillars, hq));
   }
 
+  // ----- 트랙 장치 (점프대·물·빙판·터널·장애물) -----
+  const featLm = [];
+  const feat = buildFeatures(T, { g, L, lam, basic, strip, canvasTex, instanced, hq, th, R, disposables, box, landmarks: featLm, moverModels: moverModels(theme, disposables, hq) });
+
   // ----- 도로 위 표시: 출발선, 그리드 칸, 타이어 자국, 코너 화살표 -----
   const decal = (o) => basic({ transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide, ...o });
   const chk = canvasTex(256, 32, (c) => { for (let a = 0; a < 32; a++) for (let b = 0; b < 4; b++) { c.fillStyle = (a + b) % 2 ? '#111' : '#fff'; c.fillRect(a * 8, b * 8, 8, 8); } }, false);
@@ -260,7 +289,7 @@ export function buildWorld(T, opt = {}) {
   });
   const padMat = decal({ map: padTex, transparent: false });
   for (const p of T.pads) {
-    const q = strip(T, 3.2, 0.06, -3.2, 0.06, 0, 0, 1, p.i, p.len);
+    const q = strip(T, p.lat + 3.2, 0.06, p.lat - 3.2, 0.06, 0, 0, 1, p.i, p.len);
     const uvA = q.attributes.uv; for (let r = 0; r <= p.len; r++) { uvA.setY(r * 2, r * 0.5); uvA.setY(r * 2 + 1, r * 0.5); }
     L(q, padMat);
   }
@@ -301,6 +330,7 @@ export function buildWorld(T, opt = {}) {
       lmPlan.push({ m: d.m, h: d.h, x, z, y: heightAt(x, z) - 0.4, ry: Math.atan2(T.x[i] - x, T.z[i] - z), r: d.h * (d.m === 'neon' ? 0.22 : 0.6) });
     } else lmPlan.push({ m: d.m, h: d.h, x: d.x, z: d.z, y: heightAt(d.x, d.z) - 1.5, ry: d.ry || 0, r: d.h * 0.62 });
   }
+  for (const l of featLm) lmPlan.push({ ...l, r: 0 });
   const zones = lmPlan.map(l => ({ x: l.x, z: l.z, r: l.r }));
   const blocked = (x, z) => zones.some(l => Math.hypot(l.x - x, l.z - z) < l.r);
 
@@ -515,8 +545,12 @@ export function buildWorld(T, opt = {}) {
     loadLandmark(d.m).then(Lm => {
       if (!Lm || dead) return;
       const m = new THREE.Mesh(Lm.geo, Lm.mat);
-      const sc = d.open ? d.open / ARCH_GAP : d.h / Lm.height;
-      m.scale.setScalar(sc); m.position.set(d.x, d.y - Lm.minY * sc, d.z); m.rotation.y = d.ry; m.castShadow = hq;
+      let sc = d.open ? d.open / ARCH_GAP : d.h / Lm.height;
+      if (d.fit) sc = Math.min(sc, d.fit / Lm.baseR);
+      m.scale.setScalar(sc); m.rotation.y = d.ry; m.castShadow = hq;
+      // 모델 중심이 원점에서 벗어나 있으면 바로잡기 (회전 고려)
+      const ox = d.fit ? Lm.cx * sc : 0, oz = d.fit ? Lm.cz * sc : 0, c = Math.cos(d.ry), s2 = Math.sin(d.ry);
+      m.position.set(d.x - (ox * c + oz * s2), d.y - Lm.minY * sc, d.z - (-ox * s2 + oz * c));
       g.add(m);
     });
   }
@@ -535,8 +569,8 @@ export function buildWorld(T, opt = {}) {
   return {
     group: g, theme: th, heightAt, hq,
     fog: new THREE.Fog(th.fog, th.night ? 140 : 260, th.night ? 950 : 1350),
-    update(t, px = 0, pz = 0) {
-      padTex.offset.y = -t * 2.2;
+    update(t, px = 0, pz = 0, time = 0) {
+      padTex.offset.y = -t * 2.2; feat.update(t, time);
       if (hq) { const gx = Math.round(px / 4) * 4, gz = Math.round(pz / 4) * 4; sun.target.position.set(gx, 0, gz); sun.position.set(gx + sunDir.x * 200, sunDir.y * 200, gz + sunDir.z * 200); }
     },
     dispose() { dead = true; for (const d of disposables) d.dispose && d.dispose(); g.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); },

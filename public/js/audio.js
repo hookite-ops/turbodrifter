@@ -79,6 +79,7 @@ export const sfx = {
   driftStart() { this.noise(0.12, 3800, 1800, 0.18); },
   inst() { this.noise(0.22, 4200, 900, 0.35); this.tone(520, 0.16, 'triangle', 0.22, 700); },
   charged() { this.tone(880, 0.09, 'triangle', 0.22); setTimeout(() => this.tone(1320, 0.14, 'triangle', 0.22), 80); },
+  land(v = 8) { this.hit(Math.min(1.2, v / 14)); this.noise(0.18, 900, 120, Math.min(0.45, 0.12 + v * 0.02)); },
   click() { this.tone(700, 0.05, 'triangle', 0.15); },
   lap() { [784, 988, 1175].forEach((f, i) => setTimeout(() => this.tone(f, 0.14, 'triangle', 0.2), i * 90)); },
   finish() { [523, 659, 784, 1047, 1319].forEach((f, i) => setTimeout(() => this.tone(f, 0.22, 'triangle', 0.22), i * 110)); },

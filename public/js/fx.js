@@ -97,6 +97,13 @@ export function makeFx(scene, camera) {
     dust(x, y, z, n = 5) {
       for (let i = 0; i < n; i++) { const g = 0.75 + Math.random() * 0.2; emit(x, y + 0.2, z, (Math.random() - 0.5) * 3, 0.5 + Math.random(), (Math.random() - 0.5) * 3, g, g, g * 0.95, 0.3, 0.7, 0.5, 3); }
     },
+    splash(x, y, z, mv, speed, n = 2) {
+      const sh = Math.sin(mv), ch = Math.cos(mv), v = Math.min(1.4, Math.abs(speed) / 25);
+      for (let i = 0; i < n; i++) {
+        const side = Math.random() < 0.5 ? 1 : -1, sp = 2 + Math.random() * 4 * v;
+        emit(x + ch * side * 0.9, y + 0.15, z - sh * side * 0.9, ch * side * sp + sh * speed * 0.2, 2.5 + Math.random() * 4 * v, -sh * side * sp + ch * speed * 0.2, 0.75, 0.9, 1, 0.75, 0.32, 0.45 + Math.random() * 0.3, 1.2, 14);
+      }
+    },
     confetti(x, y, z, n = 120) {
       const cs = [[1, 0.3, 0.26], [1, 0.82, 0.12], [0.18, 0.56, 1], [0.21, 0.76, 0.35], [1, 0.44, 0.69], [1, 1, 1]];
       for (let i = 0; i < n; i++) { const c = cs[i % cs.length]; emit(x + (Math.random() - 0.5) * 16, y + 5 + Math.random() * 5, z + (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 7, 2 + Math.random() * 5, (Math.random() - 0.5) * 7, c[0], c[1], c[2], 1, 0.28, 2 + Math.random() * 1.5, 0, 5); }

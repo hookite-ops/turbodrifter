@@ -396,7 +396,7 @@ function recvState(e, d) {
 function resetKart() {
   const R = race; if (!R || R.phase !== 'race' || R.resetCd > 0 || R.me.finished || paused) return;
   const k = R.me.k, p = pointAt(R.T, k.s, clamp(k.lat, -3, 3));
-  k.x = p.x; k.z = p.z; k.y = p.y; k.h = k.mv = p.h; k.speed = 0; k.drifting = false; k.boostT = 0; k.instT = 0;
+  k.x = p.x; k.z = p.z; k.y = p.y; k.h = k.mv = p.h; k.speed = 0; k.drifting = false; k.boostT = 0; k.instT = 0; k.air = false; k.vy = 0;
   R.resetCd = 1.5; sfx.click();
 }
 function togglePause() {
@@ -439,12 +439,12 @@ function updateRace(dt, now) {
 
   // ----- 물리 (고정 간격) -----
   if (simulate && R.phase !== 'countdown') {
-    R.acc += dt; let first = true;
+    R.acc += dt; let first = true; R.rule.time = Math.max(0, t);
     while (R.acc >= H) {
       R.acc -= H;
       // 내 카트
       let inp;
-      if (me.finished || window.__tdAuto) inp = botInput(R.autoBot, k, T, H);   // __tdAuto: 자동 주행 테스트용
+      if (me.finished || window.__tdAuto) inp = botInput(R.autoBot, k, T, H, R.rule.time);   // __tdAuto: 자동 주행 테스트용
       else {
         const steer = usingTouch ? -touchSteer.dir : (key.left ? 1 : 0) - (key.right ? 1 : 0);
         inp = { steer, accel: usingTouch ? !key.brake : key.accel, brake: key.brake, drift: key.drift, driftTap: first && tap.drift, boostTap: first && tap.boost, accelTap: first && tap.accel };
@@ -453,8 +453,8 @@ function updateRace(dt, now) {
       stepKart(k, inp, H, T, R.rule);
       handleEvents(R, me, k.ev);
       for (const e of R.karts) {
-        if (e.bot && !e.finished) { stepKart(e.k, botInput(e.bot, e.k, T, H), H, T, R.rule); if (e.k.ev.lap !== undefined) botLap(R, e); }
-        else if (e.bot) stepKart(e.k, botInput(e.bot, e.k, T, H), H, T, R.rule);
+        if (e.bot && !e.finished) { stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule); if (e.k.ev.lap !== undefined) botLap(R, e); }
+        else if (e.bot) stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule);
       }
       // 카트끼리 밀기
       for (const a of R.karts) {
@@ -500,7 +500,7 @@ function updateRace(dt, now) {
       if (!e.vis) { s = { x: e.k.x, y: e.k.y, z: e.k.z, h: e.k.h, speed: 0, steer: 0, slip: 0, drifting: false, boost: 0, slope: 0 }; }
       else { const n = e.net, f = n.flags | 0; s = { x: e.vis.x, y: e.vis.y, z: e.vis.z, h: e.vis.h, speed: n.speed, steer: n.steer, slip: wrap(n.h - n.mv), drifting: !!(f & 1), boost: f & 2 ? 2 : f & 4 ? 1 : 0, slope: 0 }; }
     } else {
-      const q = e.k; s = { x: q.x, y: q.y, z: q.z, h: q.h, speed: q.speed, steer: q.steer, slip: q.slip, drifting: q.drifting, boost: q.boostT > 0 || q.padT > 0 ? 2 : q.instT > 0 ? 1 : 0, slope: q._loc.slope || 0 };
+      const q = e.k; s = { x: q.x, y: q.y, z: q.z, h: q.h, speed: q.speed, steer: q.steer, slip: q.slip, drifting: q.drifting, boost: q.boostT > 0 || q.padT > 0 ? 2 : q.instT > 0 ? 1 : 0, slope: q.air ? clamp(q.vy / Math.max(8, q.speed), -0.55, 0.55) : (q._loc.slope || 0) };
     }
     poseKart(e.model, s, dt, tt);
     if (simulate) {
@@ -509,8 +509,10 @@ function updateRace(dt, now) {
       e.fx.wasBoost = s.boost;
     }
   }
+  // 물 튀김
+  if (simulate) for (const e of R.karts) { const q = e.k; if (!e.remote && q.surf === 2 && Math.abs(q.speed) > 5 && Math.random() < dt * 30) R.fx.splash(q.x, q.y, q.z, q.mv, q.speed); }
   R.fx.update(simulate ? dt : 0, viewH, camera.fov);
-  R.world.update(tt, k.x, k.z);
+  R.world.update(tt, k.x, k.z, R.rule.time || 0);
 
   // ----- 카메라 -----
   const sp01 = clamp(k.speed / C.boostSpeed, 0, 1), boosting = k.boostT > 0 || k.padT > 0;
@@ -609,6 +611,9 @@ function handleEvents(R, me, ev) {
   if (ev.driftStart) sfx.driftStart();
   if (ev.hit) { sfx.hit(ev.hit); R.shake = clamp(0.14 + ev.hit * 0.012, 0.16, 0.34); R.fx.burst(k.x, k.y, k.z, 12); R.fx.dust(k.x, k.y, k.z, 6); }
   if (ev.scrape && Math.random() < 0.2) R.fx.dust(k.x, k.y, k.z, 1);
+  if (ev.jump) { sfx.noise(0.35, 1800, 500, 0.25); R.fx.dust(k.x, k.y, k.z, 4); }
+  if (ev.land) { const v = ev.land; sfx.land(v); R.shake = Math.max(R.shake || 0, clamp(v * 0.018, 0.06, 0.3)); R.fx.dust(k.x, k.y, k.z, 6 + Math.min(10, v | 0)); if (k.surf === 2) R.fx.splash(k.x, k.y, k.z, k.mv, k.speed, 14); }
+  if (ev.bump) { sfx.hit(ev.bump.soft ? ev.bump.v * 0.35 : ev.bump.v * 0.8); R.shake = Math.max(R.shake || 0, ev.bump.soft ? 0.1 : 0.2); if (ev.bump.soft) R.fx.burst(k.x, k.y + 0.8, k.z, 14, 0.95, 0.8, 0.35); else R.fx.burst(k.x, k.y + 0.5, k.z, 10); }
   if (ev.lap !== undefined && !me.finished) {
     const tms = R.time * 1000;
     if (ev.lap >= 1) { const lt = tms - me.lapStart; if (!me.bestLap || lt < me.bestLap) me.bestLap = lt; $('h-best').textContent = 'BEST ' + fmt(me.bestLap); }
