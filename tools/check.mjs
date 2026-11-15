@@ -20,20 +20,20 @@ for (const def of TRACKS) {
   let maxSlope = 0; for (let i = 0; i < T.n; i++) maxSlope = Math.max(maxSlope, Math.abs(T.slope[i]));
   const res = { id: def.id, name: def.name, length: Math.round(T.length), minR: +minR.toFixed(1), minAtFrac: +(minAt / T.n).toFixed(2), sharpPct: Math.round(sharp / T.n * 100), straightPct: Math.round(straight / T.n * 100), minGap: +minGap.toFixed(1), overlaps, maxSlope: +maxSlope.toFixed(3), runs: [] };
   for (const rule of [{ infinite: false }, { infinite: true }]) for (const skill of [0.55, 0.95]) {
-    const k = createKart(), b = createBot(skill); b.lane = 0;
+    const k = createKart(), b = createBot(skill, skill < 0.9 ? 0.13 : 0); b.lane = 0;
     placeKart(k, T, gridSlot(T, 0)); k.lap = -1;
-    let t = 0, laps = [], last = 0, drifts = 0, hits = 0, boosts = 0, insts = 0, maxV = 0, path = [];
+    let inner = 0, outer = 0; let t = 0, laps = [], last = 0, drifts = 0, hits = 0, boosts = 0, insts = 0, maxV = 0, path = [];
     const dt = 1 / 60;
     while (t < 400 && laps.length < 3) {
       const inp = botInput(b, k, T, dt);
       stepKart(k, inp, dt, T, rule);
       t += dt;
-      if (k.ev.driftStart) drifts++; if (k.ev.hit) hits++; if (k.ev.boost) boosts++; if (k.ev.inst) insts++;
+      if (k.ev.driftStart) drifts++; if (k.ev.hit) { hits++; const c = T.curv[k.ti]; if (Math.abs(c) > 0.008) { if (Math.sign(c) === Math.sign(k.lat)) inner++; else outer++; } } if (k.ev.boost) boosts++; if (k.ev.inst) insts++;
       maxV = Math.max(maxV, k.speed);
       if (k.ev.lap !== undefined && k.ev.lap >= 1) { laps.push(+(t - last).toFixed(1)); last = t; } else if (k.ev.lap === 0) last = t;
       if (skill > 0.9 && !rule.infinite && laps.length === 1 && Math.round(t * 60) % 6 === 0) path.push([+k.x.toFixed(1), +k.z.toFixed(1), k.drifting ? 1 : 0, k.boostT > 0 ? 1 : 0]);
     }
-    res.runs.push({ inf: rule.infinite, skill, laps, drifts, hits, boosts, insts, maxKmh: Math.round(maxV * 6.6) });
+    res.runs.push({ inf: rule.infinite, skill, laps, inner, outer, drifts, hits, boosts, insts, maxKmh: Math.round(maxV * 6.6) });
     if (path.length) res.path = path;
   }
   res.center = Array.from({ length: T.n }, (_, i) => [+T.x[i].toFixed(1), +T.z[i].toFixed(1), +T.y[i].toFixed(1), +T.hw[i].toFixed(1), +T.nx[i].toFixed(3), +T.nz[i].toFixed(3)]);

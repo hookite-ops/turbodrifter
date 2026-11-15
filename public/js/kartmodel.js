@@ -114,8 +114,9 @@ const shadowTex = (() => {
 })();
 const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
 const shadowGeo = new THREE.PlaneGeometry(3.4, 4.2);
-const flameGeo = new THREE.ConeGeometry(0.16, 1.5, 8, 1, true); flameGeo.rotateX(-Math.PI / 2); flameGeo.translate(0, 0, -0.75);
-const flameCore = new THREE.ConeGeometry(0.08, 1.0, 6, 1, true); flameCore.rotateX(-Math.PI / 2); flameCore.translate(0, 0, -0.5);
+const flameGeo = new THREE.ConeGeometry(0.2, 1.5, 10, 1, true); flameGeo.rotateX(-Math.PI / 2); flameGeo.translate(0, 0, -0.75);
+const flameCore = new THREE.ConeGeometry(0.1, 1.0, 8, 1, true); flameCore.rotateX(-Math.PI / 2); flameCore.translate(0, 0, -0.5);
+const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.3, 'rgba(255,255,255,0.5)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 
 export function makeKart(charIdx, colorIdx, kartIdx = 0) {
   const ch = CHARS[charIdx % CHARS.length], color = COLORS[colorIdx % COLORS.length].hex;
@@ -150,10 +151,12 @@ export function makeKart(charIdx, colorIdx, kartIdx = 0) {
     const f = new THREE.Group(); f.position.copy(p);
     const outer = new THREE.Mesh(flameGeo, new THREE.MeshBasicMaterial({ color: 0x33b5ff, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     const core = new THREE.Mesh(flameCore, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-    f.add(outer, core); f.visible = false; tilt.add(f); f.userData.outer = outer; return f;
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x66c8ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.scale.setScalar(1.3); glow.position.z = -0.15;
+    f.add(outer, core, glow); f.visible = false; tilt.add(f); f.userData.outer = outer; f.userData.glow = glow; return f;
   });
   const shadow = new THREE.Mesh(shadowGeo, shadowMat); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.05; group.add(shadow);
-  return { group, tilt, wheels, flames, spin: 0, lean: 0, pitch: 0, tag: null };
+  return { group, tilt, wheels, flames, shadow, spin: 0, lean: 0, pitch: 0, flame: 0, tag: null };
 }
 
 // 매 프레임 모양 갱신: s = {x,y,z,h,speed,steer,slip,drifting,boost(0 없음/1 순간/2 부스터), slope}
@@ -162,20 +165,31 @@ export function poseKart(m, s, dt, t) {
   m.group.rotation.set(0, s.h, 0);
   m.spin += s.speed * dt;
   for (const w of m.wheels) { w.rotation.x = m.spin / (w.userData.r || 0.3); w.rotation.y = w.userData.front ? s.steer * 0.42 : 0; }
-  const leanT = s.drifting ? -Math.sign(s.slip || 0) * 0.13 : -(s.steer || 0) * 0.04 * Math.min(1, Math.abs(s.speed) / 20);
+  const leanT = s.drifting ? -Math.sign(s.slip || 0) * (0.07 + Math.min(0.1, Math.abs(s.slip || 0) * 0.14)) : -(s.steer || 0) * 0.045 * Math.min(1, Math.abs(s.speed) / 20);
   m.lean += (leanT - m.lean) * Math.min(1, dt * 8);
-  const pitchT = (s.boost ? -0.07 : 0) - Math.atan(s.slope || 0);
+  const pitchT = (s.boost === 2 ? -0.09 : s.boost ? -0.05 : 0) - Math.atan(s.slope || 0);
   m.pitch += (pitchT - m.pitch) * Math.min(1, dt * 7);
   m.tilt.rotation.set(m.pitch, 0, m.lean);
   m.tilt.position.y = Math.abs(s.speed) > 2 ? Math.sin(t * 38 + m.spin) * 0.008 : 0;
+  // 불꽃: 부스터는 길고 파랗게, 순간 부스터는 짧고 주황색. 켜질 때 확 뻗었다가 일렁인다.
+  const want = s.boost === 2 ? 1 : s.boost === 1 ? 0.5 : 0;
+  m.flame += (want - m.flame) * Math.min(1, dt * (want > m.flame ? 22 : 9));
   for (const f of m.flames) {
-    f.visible = s.boost > 0;
-    if (f.visible) {
-      const k = (s.boost === 2 ? 1.25 : 0.7) * (0.85 + Math.random() * 0.3);
-      f.scale.set(s.boost === 2 ? 1.25 : 0.9, s.boost === 2 ? 1.25 : 0.9, k);
-      f.userData.outer.material.color.setHex(s.boost === 2 ? 0x2fa8ff : 0xffa63a);
-    }
+    f.visible = m.flame > 0.03;
+    if (!f.visible) continue;
+    const flick = 0.82 + Math.sin(t * 61 + f.position.x * 9) * 0.1 + Math.random() * 0.14;
+    f.scale.set(0.7 + m.flame * 0.75, 0.7 + m.flame * 0.75, m.flame * 2.3 * flick);
+    const big = s.boost === 2;
+    f.userData.outer.material.color.setHex(big ? 0x2fa8ff : 0xff9a2e);
+    f.userData.glow.material.color.setHex(big ? 0x66c8ff : 0xffb347);
+    f.userData.glow.scale.setScalar((1.0 + m.flame * 1.3) * flick / Math.max(0.2, f.scale.x));
   }
+}
+
+// PC(그림자 켬): 카트가 실제 그림자를 드리우고, 동그란 가짜 그림자는 숨긴다
+export function setKartShadow(m, hq) {
+  m.shadow.visible = !hq;
+  m.group.traverse(o => { if (o.isMesh && o !== m.shadow && !o.material.transparent) o.castShadow = hq; });
 }
 
 // 이름표

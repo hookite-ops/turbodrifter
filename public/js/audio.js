@@ -44,11 +44,23 @@ export const sfx = {
     for (const l of [engine, skid, boostN]) if (l) { try { l.s.stop(); } catch (e) {} }
     engine = skid = boostN = null;
   },
-  drive(speed01, drifting, boost) { // 매 프레임
+  drive(speed01, drift, boost) { // 매 프레임. drift = 드리프트 깊이 0~1
     if (!ready || !ctx) return; const t = ctx.currentTime;
-    if (engine) { engine.s.playbackRate.setTargetAtTime(0.55 + speed01 * 1.25 + (boost ? 0.25 : 0), t, 0.06); engine.g.gain.setTargetAtTime(0.28 + speed01 * 0.22, t, 0.1); }
-    if (skid) skid.g.gain.setTargetAtTime(drifting ? 0.5 : 0, t, 0.05);
-    if (boostN) { boostN.g.gain.setTargetAtTime(boost === 2 ? 0.42 : boost === 1 ? 0.22 : Math.max(0, speed01 - 0.7) * 0.18, t, 0.08); boostN.f.frequency.setTargetAtTime(700 + speed01 * 900 + (boost ? 600 : 0), t, 0.1); }
+    if (engine) {
+      // 속도 구간마다 음이 올라갔다 한 번씩 떨어지는 '변속' 느낌
+      const g = Math.min(3, Math.floor(speed01 * 4.6)), frac = speed01 * 4.6 - g;
+      const rate = 0.62 + g * 0.2 + frac * 0.34 + (boost === 2 ? 0.3 : boost ? 0.12 : 0);
+      engine.s.playbackRate.setTargetAtTime(rate, t, 0.05); engine.g.gain.setTargetAtTime(0.26 + speed01 * 0.2, t, 0.1);
+    }
+    if (skid) { skid.g.gain.setTargetAtTime(drift ? 0.25 + drift * 0.35 : 0, t, 0.04); skid.s.playbackRate.setTargetAtTime(0.85 + speed01 * 0.35, t, 0.1); }
+    if (boostN) { boostN.g.gain.setTargetAtTime(boost === 2 ? 0.5 : boost === 1 ? 0.26 : Math.max(0, speed01 - 0.68) * 0.22, t, 0.07); boostN.f.frequency.setTargetAtTime(600 + speed01 * 900 + (boost ? 700 : 0), t, 0.1); }
+  },
+  noise(dur = 0.3, f0 = 2400, f1 = 300, vol = 0.4) { // 짧은 바람·폭발음
+    if (!ready) return; const t = ctx.currentTime;
+    const s = ctx.createBufferSource(); s.buffer = bufs.noise;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ctx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(f).connect(g).connect(master); s.start(t); s.stop(t + dur + 0.02);
   },
   hit(v = 1) {
     if (!ready || !bufs.impact) return;
@@ -63,8 +75,9 @@ export const sfx = {
     o.connect(g).connect(master); o.start(t); o.stop(t + dur + 0.02);
   },
   beep(go) { this.tone(go ? 1320 : 660, go ? 0.5 : 0.18, 'square', 0.16); },
-  boost() { this.tone(180, 0.5, 'sawtooth', 0.2, 900); },
-  inst() { this.tone(520, 0.18, 'triangle', 0.25, 700); },
+  boost() { this.noise(0.55, 5200, 500, 0.6); this.tone(110, 0.45, 'sawtooth', 0.22, 520); this.tone(60, 0.3, 'sine', 0.5, -20); },
+  driftStart() { this.noise(0.12, 3800, 1800, 0.18); },
+  inst() { this.noise(0.22, 4200, 900, 0.35); this.tone(520, 0.16, 'triangle', 0.22, 700); },
   charged() { this.tone(880, 0.09, 'triangle', 0.22); setTimeout(() => this.tone(1320, 0.14, 'triangle', 0.22), 80); },
   click() { this.tone(700, 0.05, 'triangle', 0.15); },
   lap() { [784, 988, 1175].forEach((f, i) => setTimeout(() => this.tone(f, 0.14, 'triangle', 0.2), i * 90)); },

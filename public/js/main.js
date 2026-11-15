@@ -3,7 +3,7 @@ import * as THREE from '../lib/three.bundle.js';
 import { TRACKS, buildTrack, gridSlot, pointAt } from './tracks.js';
 import { C, KMH, createKart, placeKart, stepKart, startBoost, pushApart, createBot, botInput } from './physics.js';
 import { buildWorld, preloadLandmarks } from './world.js';
-import { loadKartAsset, makeKart, poseKart, makeTag, CHARS, COLORS, KARTS } from './kartmodel.js';
+import { loadKartAsset, makeKart, poseKart, makeTag, setKartShadow, CHARS, COLORS, KARTS } from './kartmodel.js';
 import { makeFx } from './fx.js';
 import { sfx } from './audio.js';
 
@@ -17,6 +17,7 @@ const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ==
 const canvas = $('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const camera = new THREE.PerspectiveCamera(70, 1, 0.3, 3000);
 let VW = 1, VH = 1, viewH = 1, baseFov = 70, splitOn = false;
 function resize() {
@@ -33,6 +34,9 @@ function resize() {
 }
 window.addEventListener('resize', resize); window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 resize();
+
+// 그림자 품질: PC는 켜고 시작, 터치 기기는 끄고 시작 (메뉴에서 바꿀 수 있음)
+let HQ = store.get('td_hq', !(('ontouchstart' in window) || navigator.maxTouchPoints > 0));
 
 // ---------------- 프로필 ----------------
 const profile = store.get('td_profile', { name: '', char: 0, color: 0 });
@@ -54,20 +58,28 @@ function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('sh
 const menuScene = new THREE.Scene();
 let menuKart = null;
 {
-  menuScene.background = new THREE.Color('#2f8fff');
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(200, 16, 8), new THREE.ShaderMaterial({
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(200, 24, 12), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
-    vertexShader: 'varying float h; void main(){ h = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: 'varying float h; void main(){ vec3 a = vec3(0.07,0.12,0.36); vec3 b = vec3(0.18,0.56,1.0); vec3 c = vec3(0.75,0.93,1.0); float t = clamp(h*1.4+0.25,0.0,1.0); gl_FragColor = vec4(mix(c, mix(b,a,smoothstep(0.3,1.0,t)), smoothstep(0.0,0.5,t)),1.0);\n#include <colorspace_fragment>\n }',
+    vertexShader: 'varying vec3 d; void main(){ d = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    // 어두운 차고 + 뒤에서 비추는 노란 사선 조명
+    fragmentShader: `varying vec3 d; void main(){ vec3 n = normalize(d); vec3 a = vec3(0.078,0.086,0.122); vec3 b = vec3(0.16,0.18,0.27);
+      vec3 c = mix(b, a, smoothstep(-0.1, 0.7, n.y));
+      float band = smoothstep(0.035, 0.0, abs(fract((n.x * 1.3 + n.y * 2.2) * 2.0) - 0.5) - 0.2) * smoothstep(0.75, 0.05, n.y) * step(n.z, 0.2);
+      c += vec3(1.0, 0.82, 0.12) * band * 0.035;
+      gl_FragColor = vec4(c, 1.0);
+      #include <colorspace_fragment>
+    }`,
   }));
   menuScene.add(sky);
   const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
-  for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) { x.fillStyle = (a + b) % 2 ? '#22306b' : '#f4f1e6'; x.fillRect(a * 32, b * 32, 32, 32); }
+  for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) { x.fillStyle = (a + b) % 2 ? '#1c1f2b' : '#f6f3ea'; x.fillRect(a * 32, b * 32, 32, 32); }
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.5, 0.4, 40), [new THREE.MeshLambertMaterial({ color: '#ffd23c' }), new THREE.MeshLambertMaterial({ map: tex }), new THREE.MeshLambertMaterial({ color: '#c98f00' })]);
-  disc.position.y = -0.2; menuScene.add(disc);
-  menuScene.add(new THREE.HemisphereLight('#ffffff', '#6aa0ff', 1.9));
-  const d = new THREE.DirectionalLight('#ffffff', 1.8); d.position.set(2, 4, 3); menuScene.add(d);
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.7, 0.36, 48), [new THREE.MeshLambertMaterial({ color: '#ffd21e' }), new THREE.MeshLambertMaterial({ map: tex }), new THREE.MeshLambertMaterial({ color: '#14161f' })]);
+  disc.position.y = -0.18; menuScene.add(disc);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 40), new THREE.MeshLambertMaterial({ color: '#20232f' })); floor.rotation.x = -Math.PI / 2; floor.position.y = -0.36; menuScene.add(floor);
+  menuScene.add(new THREE.HemisphereLight('#ffffff', '#3a4266', 1.5));
+  const d = new THREE.DirectionalLight('#ffffff', 2.2); d.position.set(3, 5, 4); menuScene.add(d);
+  const rim = new THREE.DirectionalLight('#ffd21e', 1.4); rim.position.set(-4, 2, -4); menuScene.add(rim);
 }
 function refreshMenuKart() {
   if (menuKart) menuScene.remove(menuKart.group);
@@ -86,10 +98,10 @@ window.addEventListener('keydown', e => {
   if (e.repeat) { if (race) e.preventDefault(); return; }
   sfx.init(); let used = true;
   switch (e.code) {
-    case 'ArrowLeft': case 'KeyA': key.left = true; break;
-    case 'ArrowRight': case 'KeyD': key.right = true; break;
-    case 'ArrowUp': case 'KeyW': key.accel = true; tap.accel = true; break;
-    case 'ArrowDown': case 'KeyS': key.brake = true; break;
+    case 'ArrowLeft': key.left = true; break;
+    case 'ArrowRight': key.right = true; break;
+    case 'ArrowUp': key.accel = true; tap.accel = true; break;
+    case 'ArrowDown': key.brake = true; break;
     case 'ShiftLeft': case 'ShiftRight': case 'Space': key.drift = true; tap.drift = true; break;
     case 'ControlLeft': case 'ControlRight': case 'KeyZ': case 'KeyX': tap.boost = true; break;
     case 'KeyR': resetKart(); break;
@@ -100,10 +112,10 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => {
   switch (e.code) {
-    case 'ArrowLeft': case 'KeyA': key.left = false; break;
-    case 'ArrowRight': case 'KeyD': key.right = false; break;
-    case 'ArrowUp': case 'KeyW': key.accel = false; break;
-    case 'ArrowDown': case 'KeyS': key.brake = false; break;
+    case 'ArrowLeft': key.left = false; break;
+    case 'ArrowRight': key.right = false; break;
+    case 'ArrowUp': key.accel = false; break;
+    case 'ArrowDown': key.brake = false; break;
     case 'ShiftLeft': case 'ShiftRight': case 'Space': key.drift = false; break;
   }
 });
@@ -278,6 +290,7 @@ function addKart(R, o) {
   const model = makeKart(o.char, o.color, o.kart | 0);
   const e = { id: o.id, name: o.name, me: !!o.me, bot: o.bot || null, remote: !!o.remote, k: createKart(), model, fx: {}, finished: false, finishTime: 0, char: o.char, color: o.color, net: null, vis: null, lapStart: 0, bestLap: 0, inp: null };
   placeKart(e.k, R.T, gridSlot(R.T, o.slot));
+  setKartShadow(model, HQ);
   if (!e.me) { e.tag = makeTag(o.name, e.bot ? '#d5dcff' : '#ffffff'); model.group.add(e.tag); }
   R.scene.add(model.group); R.karts.push(e); R.byId.set(e.id, e);
   return e;
@@ -291,13 +304,14 @@ function startRace(cfg) {
   if (race) endRace();
   sfx.init();
   const T = getTrack(cfg.track);
-  const world = buildWorld(T);
+  renderer.shadowMap.enabled = HQ;
+  const world = buildWorld(T, { hq: HQ });
   while (scene.children.length) scene.remove(scene.children[0]);
   scene.add(world.group); scene.fog = world.fog; scene.background = new THREE.Color(world.theme.hor);
   const R = race = {
-    cfg, T, world, scene, fx: makeFx(scene), rule: { infinite: cfg.mode === 'infinite' }, laps: cfg.laps, online: !!cfg.online,
+    cfg, T, world, scene, fx: makeFx(scene, camera), rule: { infinite: cfg.mode === 'infinite' }, laps: cfg.laps, online: !!cfg.online,
     karts: [], byId: new Map(), me: null, phase: 'countdown', startPerf: 0, time: 0, acc: 0, endAt: 0, firstFin: false,
-    lastCount: 9, startTap: -1e9, startUsed: false, sendT: 0, hudT: 0, camA: 0, camY: 0, shake: 0, msgT: 0, subT: 0, resetCd: 0, order: [], mini: null, done: false,
+    lastCount: 9, startTap: -1e9, startUsed: false, sendT: 0, hudT: 0, camA: 0, camY: 0, shake: 0, boostAmt: 0, finT: 0, tipT: 0, msgT: 0, subT: 0, resetCd: 0, order: [], mini: null, done: false,
   };
   if (cfg.online) {
     R.startPerf = performance.now() + (cfg.startAt - net.now());
@@ -321,16 +335,18 @@ function startRace(cfg) {
   // HUD 준비
   $('h-laps').textContent = R.laps; $('h-best').textContent = ''; $('h-of').textContent = '/' + R.karts.length;
   R.miniBase = document.createElement('canvas'); R.miniBase.width = R.miniBase.height = 220; R.miniMap = drawTrack(R.miniBase, T, 9);
-  hideMsg(); setSub(''); $('h-tip').classList.add('hidden');
+  hideMsg(); setSub('');
   for (const s of SCREENS) $(s).classList.add('hidden'); $('ver').classList.add('hidden');
   $('hud').classList.remove('hidden'); $('touch').classList.remove('hidden');
   $('b-restart').classList.toggle('hidden', R.online);
   paused = false; screen = 'race';
   document.body.classList.add('racing'); splitOn = true; resize();
   sfx.startRace();
+  $('h-tip').innerHTML = usingTouch ? '<span>방향 + 드리프트 → 게이지가 차면 부스터</span>'
+    : '<span><kbd>←</kbd><kbd>→</kbd> 방향</span><span><kbd>↑</kbd> 가속</span><span><kbd>Shift</kbd> 드리프트</span><span><kbd>Ctrl</kbd> 부스터</span>';
+  $('h-tip').classList.remove('hidden'); R.tipT = 11;
   if (usingTouch) { // 전체 화면 + 가로 고정 시도 (안 되면 그냥 진행)
     try { const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen({ navigationUI: 'hide' }); if (p && p.then) p.then(() => { try { screen_.orientation.lock('landscape').catch(() => {}); } catch (e) {} }).catch(() => {}); } catch (e) {}
-    showTip('방향 + 드리프트 → 게이지가 차면 부스터!', 4.5);
   }
 }
 const screen_ = window.screen;
@@ -341,7 +357,8 @@ function endRace() {
   sfx.stopRace();
   R.fx.dispose(); scene.remove(R.world.group); R.world.dispose();
   for (const k of R.karts) scene.remove(k.model.group);
-  $('hud').classList.add('hidden'); $('touch').classList.add('hidden'); $('lines').style.opacity = 0;
+  $('hud').classList.add('hidden'); $('touch').classList.add('hidden'); $('boostfx').style.opacity = 0;
+  renderer.shadowMap.enabled = false;
   document.body.classList.remove('racing'); splitOn = false; resize();
 }
 
@@ -412,9 +429,9 @@ function updateRace(dt, now) {
     if (tap.accel || tap.boost) R.startTap = now;
     if (c !== R.lastCount && c <= 3 && c >= 1) { R.lastCount = c; showMsg(String(c), '', 0.9); sfx.beep(false); }
     if (t >= 0) {
-      R.phase = 'race'; showMsg('GO!', 'go', 1.0); sfx.beep(true); $('h-tip').classList.add('hidden');
+      R.phase = 'race'; showMsg('GO!', 'go', 1.0); sfx.beep(true);
       for (const e of R.karts) e.lapStart = 0;
-      if (now - R.startTap < 160) { startBoost(k); R.startUsed = true; sfx.boost(); setTimeout(() => race === R && flashSub('출발 부스터!', 'inst'), 0); }
+      if (now - R.startTap < 160) { startBoost(k); R.startUsed = true; boostFx(R, k); setTimeout(() => race === R && flashSub('출발 부스터!', 'inst'), 0); }
       for (const e of R.karts) if (e.bot && Math.random() < e.bot.skill * 0.7) startBoost(e.k);
     }
     tap.accel = tap.boost = tap.drift = false;
@@ -427,11 +444,11 @@ function updateRace(dt, now) {
       R.acc -= H;
       // 내 카트
       let inp;
-      if (me.finished) inp = botInput(R.autoBot, k, T, H);
+      if (me.finished || window.__tdAuto) inp = botInput(R.autoBot, k, T, H);   // __tdAuto: 자동 주행 테스트용
       else {
         const steer = usingTouch ? -touchSteer.dir : (key.left ? 1 : 0) - (key.right ? 1 : 0);
         inp = { steer, accel: usingTouch ? !key.brake : key.accel, brake: key.brake, drift: key.drift, driftTap: first && tap.drift, boostTap: first && tap.boost, accelTap: first && tap.accel };
-        if (first && !R.startUsed && t < 0.36 && (tap.accel || tap.boost)) { startBoost(k); R.startUsed = true; inp.boostTap = false; sfx.boost(); flashSub('출발 부스터!', 'inst'); }
+        if (first && !R.startUsed && t < 0.36 && (tap.accel || tap.boost)) { startBoost(k); R.startUsed = true; inp.boostTap = false; boostFx(R, k); flashSub('출발 부스터!', 'inst'); }
       }
       stepKart(k, inp, H, T, R.rule);
       handleEvents(R, me, k.ev);
@@ -447,7 +464,7 @@ function updateRace(dt, now) {
           const bx = b.remote ? (b.vis ? b.vis.x : b.k.x) : b.k.x, bz = b.remote ? (b.vis ? b.vis.z : b.k.z) : b.k.z;
           const bs = b.remote && b.net ? b.net.speed : b.k.speed, bm = b.remote && b.net ? b.net.mv : b.k.mv, by = b.remote && b.vis ? b.vis.y : b.k.y;
           const hit = pushApart(a.k, bx, bz, by, Math.sin(bm) * bs, Math.cos(bm) * bs);
-          if (hit > 4 && a.me && first) { sfx.hit(hit * 0.5); R.shake = 0.15; }
+          if (hit > 4 && a.me && first) { sfx.hit(hit * 0.5); R.shake = 0.22; }
         }
       }
       first = false;
@@ -486,27 +503,44 @@ function updateRace(dt, now) {
       const q = e.k; s = { x: q.x, y: q.y, z: q.z, h: q.h, speed: q.speed, steer: q.steer, slip: q.slip, drifting: q.drifting, boost: q.boostT > 0 || q.padT > 0 ? 2 : q.instT > 0 ? 1 : 0, slope: q._loc.slope || 0 };
     }
     poseKart(e.model, s, dt, tt);
-    if (simulate) R.fx.kart(e.fx, s, dt);
+    if (simulate) {
+      R.fx.kart(e.fx, s, dt, e.me ? k.gauge : 0.3);
+      if (!e.me && s.boost === 2 && e.fx.wasBoost !== 2) R.fx.ring(s.x, s.y, s.z, s.h);   // 다른 카트의 부스터 발동
+      e.fx.wasBoost = s.boost;
+    }
   }
   R.fx.update(simulate ? dt : 0, viewH, camera.fov);
-  R.world.update(tt);
+  R.world.update(tt, k.x, k.z);
 
   // ----- 카메라 -----
   const sp01 = clamp(k.speed / C.boostSpeed, 0, 1), boosting = k.boostT > 0 || k.padT > 0;
-  const camTarget = k.h - k.slip * 0.55;
-  R.camA += wrap(camTarget - R.camA) * (1 - Math.exp(-(R.phase === 'countdown' ? 3 : 7.5) * dt));
-  R.camY += (k.y - R.camY) * (1 - Math.exp(-8 * dt));
-  const back = 6.4 + sp01 * 1.4 + (boosting ? 1.3 : 0), ch = 3.0 + sp01 * 0.35;
-  if (R.shake > 0) R.shake -= dt;
-  const shx = R.shake > 0 ? (Math.random() - 0.5) * 0.35 : boosting ? (Math.random() - 0.5) * 0.05 : 0;
-  camera.position.set(k.x - Math.sin(R.camA) * back + shx, R.camY + ch + (R.shake > 0 ? (Math.random() - 0.5) * 0.25 : 0), k.z - Math.cos(R.camA) * back);
-  camera.lookAt(k.x + Math.sin(R.camA) * 5, R.camY + 0.95, k.z + Math.cos(R.camA) * 5);
-  const fovT = baseFov + sp01 * 9 + (boosting ? 13 : k.instT > 0 ? 6 : 0);
-  camera.fov += (Math.min(fovT, 112) - camera.fov) * (1 - Math.exp(-6 * dt)); camera.updateProjectionMatrix();
-  $('lines').style.opacity = boosting ? 0.75 : k.instT > 0 ? 0.4 : 0;
+  R.boostAmt += ((boosting ? 1 : k.instT > 0 ? 0.45 : 0) - R.boostAmt) * (1 - Math.exp(-(boosting ? 9 : 3) * dt));
+  // 진행 방향을 따라가되, 드리프트 중에는 차체가 꺾인 모습이 보이도록 조금만 같이 돈다
+  const lookYaw = k.mv + k.slip * 0.38;
+  R.camA += wrap(lookYaw - R.camA) * (1 - Math.exp(-(R.phase === 'countdown' ? 20 : 8.5) * dt));
+  R.camY += (k.y - R.camY) * (1 - Math.exp(-9 * dt));
+  let orbit = 0, extraD = 0, extraH = 0;
+  if (R.phase === 'countdown') {                         // 출발 전: 앞쪽에서 돌아 들어오는 연출
+    const u = clamp((t + 4.3) / 3.3, 0, 1), e = 1 - (1 - u) ** 3;
+    orbit = (1 - e) * 2.7; extraD = (1 - e) * 3.4; extraH = (1 - e) * 1.5;
+  } else if (me.finished) {                              // 완주 후: 앞으로 돌아 나가며 카트를 비춘다
+    R.finT += dt; const u = clamp(R.finT / 2.4, 0, 1), e = u * u * (3 - 2 * u);
+    orbit = e * 2.75; extraD = e * 1.4;
+  }
+  const yaw = R.camA + orbit, front = clamp(1 - Math.abs(orbit) / 1.3, 0, 1);
+  const dist = 6.1 + sp01 * 1.0 + R.boostAmt * 1.1 + extraD, ch = 2.75 + sp01 * 0.2 + extraH;
+  let shx = 0, shy = 0;
+  if (R.shake > 0) { R.shake -= dt; const a = Math.max(0, R.shake) * 1.7; shx = Math.sin(now * 0.085) * a; shy = Math.cos(now * 0.12) * a * 0.7; }
+  if (R.boostAmt > 0.05) { shx += Math.sin(now * 0.07) * 0.022 * R.boostAmt; shy += Math.sin(now * 0.113) * 0.016 * R.boostAmt; }
+  camera.position.set(k.x - Math.sin(yaw) * dist + Math.cos(yaw) * shx, R.camY + ch + shy, k.z - Math.cos(yaw) * dist - Math.sin(yaw) * shx);
+  camera.lookAt(k.x + Math.sin(R.camA) * 5.5 * front, R.camY + 0.95, k.z + Math.cos(R.camA) * 5.5 * front);
+  const fovT = baseFov + sp01 * 6 + R.boostAmt * 12;
+  camera.fov += (Math.min(fovT, 112) - camera.fov) * (1 - Math.exp(-7 * dt)); camera.updateProjectionMatrix();
+  R.fx.streak(R.phase === 'countdown' ? 0 : clamp((sp01 - 0.66) * 1.1, 0, 0.3) + R.boostAmt * 0.7, dt);
+  $('boostfx').style.opacity = R.boostAmt.toFixed(2);
 
   // ----- 소리 -----
-  if (simulate) sfx.drive(clamp(Math.abs(k.speed) / C.boostSpeed, 0, 1), k.drifting, boosting ? 2 : k.instT > 0 ? 1 : 0);
+  if (simulate) sfx.drive(clamp(Math.abs(k.speed) / C.boostSpeed, 0, 1), k.drifting ? clamp(Math.abs(k.slip) / 0.5, 0.4, 1) : 0, boosting ? 2 : k.instT > 0 ? 1 : 0);
 
   // ----- 온라인 전송 -----
   if (R.online && R.phase === 'race') {
@@ -519,7 +553,11 @@ function updateRace(dt, now) {
   }
 
   // ----- HUD -----
-  setText('h-speed', String(Math.round(Math.abs(k.speed) * KMH)));
+  const kmh = Math.round(Math.abs(k.speed) * KMH);
+  setText('h-speed', String(kmh));
+  if (!usingTouch) { const off = Math.round(208 * (1 - clamp(kmh / 290, 0, 1))); if (hudCache.dial !== off) { hudCache.dial = off; $('dial-fg').style.strokeDashoffset = off; } }
+  $('h-inst').classList.toggle('on', k.instWin > 0 && !me.finished);
+  if (R.tipT > 0) { R.tipT -= dt; if (R.tipT <= 0) $('h-tip').classList.add('hidden'); }
   $('h-speedbox').classList.toggle('boost', boosting);
   $('bar-i').style.width = (clamp(k.gauge, 0, 1) * 100).toFixed(1) + '%';
   $('bar').classList.toggle('full', k.boosts >= 2 && k.gauge >= 1);
@@ -542,7 +580,7 @@ function updateRace(dt, now) {
     const b = $('h-board'); let html = '';
     // 화면 높이에 들어가는 만큼만 (내 순위가 항상 보이게)
     const land = VW > VH, u = land ? Math.min(VW / 100, VH * 0.019) : Math.min(VW * 0.019, VH / 100);
-    const fit = clamp(Math.floor((VH / u - (land ? 35 : 97)) / 2.95), 3, 8);
+    const fit = clamp(Math.floor((VH / u - (land ? (usingTouch ? 35 : 30) : 97)) / 2.95), 3, 8);
     let from = clamp(myRank - Math.ceil(fit / 2), 0, Math.max(0, order.length - fit));
     order.slice(from, from + fit).forEach((e, i) => { html += `<div class="${e.me ? 'me' : ''}${e.finished ? ' fin' : ''}"><i>${from + i + 1}</i>${e.name.replace(/[<>&]/g, '')}</div>`; });
     if (hudCache.board !== html) { hudCache.board = html; b.innerHTML = html; }
@@ -558,13 +596,19 @@ function updateRace(dt, now) {
 }
 function flashSub(text, cls) { subKey = ''; setSub(text, cls); race.subT = 0.9; }
 
+function boostFx(R, k) {
+  sfx.boost(); R.fx.ring(k.x, k.y, k.z, k.h); R.fx.ring(k.x, k.y, k.z, k.h, 0xffffff, 0.6);
+  const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
+}
 function handleEvents(R, me, ev) {
   const k = me.k;
-  if (ev.boost && !ev.start) sfx.boost();
-  if (ev.inst) { sfx.inst(); flashSub('순간 부스터!', 'inst'); }
-  if (ev.charged) sfx.charged();
-  if (ev.pad) sfx.boost();
-  if (ev.hit) { sfx.hit(ev.hit); R.shake = 0.18; R.fx.burst(k.x, k.y, k.z, 10); }
+  if (ev.boost && !ev.start) boostFx(R, k);
+  if (ev.inst) { sfx.inst(); R.fx.ring(k.x, k.y, k.z, k.h, 0xffb347, 0.55); flashSub('순간 부스터!', 'inst'); }
+  if (ev.charged) { sfx.charged(); R.fx.burst(k.x, k.y + 0.6, k.z, 16, 0.45, 0.8, 1); }
+  if (ev.pad) boostFx(R, k);
+  if (ev.driftStart) sfx.driftStart();
+  if (ev.hit) { sfx.hit(ev.hit); R.shake = clamp(0.14 + ev.hit * 0.012, 0.16, 0.34); R.fx.burst(k.x, k.y, k.z, 12); R.fx.dust(k.x, k.y, k.z, 6); }
+  if (ev.scrape && Math.random() < 0.2) R.fx.dust(k.x, k.y, k.z, 1);
   if (ev.lap !== undefined && !me.finished) {
     const tms = R.time * 1000;
     if (ev.lap >= 1) { const lt = tms - me.lapStart; if (!me.bestLap || lt < me.bestLap) me.bestLap = lt; $('h-best').textContent = 'BEST ' + fmt(me.bestLap); }
@@ -572,7 +616,7 @@ function handleEvents(R, me, ev) {
     if (ev.lap >= R.laps) {
       me.finished = true; me.finishTime = Math.round(tms); k.finished = true;
       const rank = R.karts.filter(e => e.finished).length;
-      showMsg('FINISH!', 'go', 3); sfx.finish(); setText('h-time', fmt(me.finishTime));
+      showMsg('FINISH!', 'go', 3); sfx.finish(); setText('h-time', fmt(me.finishTime)); R.fx.confetti(k.x, k.y, k.z);
       if (R.online) net.send({ t: 'fin', time: me.finishTime });
       else if (!R.endAt) R.endAt = performance.now() + (R.karts.length > 1 ? 10000 : 1500);
     } else if (ev.lap >= 1) { showMsg(ev.lap === R.laps - 1 ? 'FINAL LAP' : `LAP ${ev.lap + 1}`, '', 1.4); sfx.lap(); }
@@ -587,9 +631,10 @@ function botLap(R, e) {
 
 // ---------------- 메인 루프 ----------------
 let last = performance.now();
+let frames = 0;
 function frame(now) {
-  requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  requestAnimationFrame(frame); frames++;
+  const dt = Math.min(window.__tdMaxDt || 0.05, (now - last) / 1000); last = now;   // __tdMaxDt: 느린 환경 테스트용
   if (race) { updateRace(dt, now); if (race) renderer.render(scene, camera); else renderMenu(dt, now); }
   else renderMenu(dt, now);
 }
@@ -597,8 +642,8 @@ function renderMenu(dt, now) {
   if (menuKart) { menuKart.group.rotation.y = now / 1000 * 0.6; for (const w of menuKart.wheels) w.rotation.x = now / 300; }
   const portrait = camera.aspect < 1;
   camera.fov = portrait ? 52 : 38; camera.updateProjectionMatrix();
-  if (portrait) { camera.position.set(0, 3.4, 10); camera.lookAt(0, -1.9, 0); }
-  else { camera.position.set(0, 2.5, 10.5); camera.lookAt(0.15, 0.55, 0); }
+  if (portrait) { camera.position.set(0, 3.2, 10); camera.lookAt(0, -2.6, 0); }
+  else { camera.position.set(-0.9, 2.5, 9.6); camera.lookAt(2.0, 0.55, 0); }   // 카트를 화면 왼쪽에
   renderer.render(menuScene, camera);
 }
 
@@ -626,6 +671,9 @@ function init() {
   document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => { sfx.click(); show('menu'); });
   $('b-solo').onclick = () => { sfx.click(); show('solo'); };
   $('b-help').onclick = () => { sfx.click(); show('help'); };
+  const paintHq = () => { $('b-hq').textContent = HQ ? '그림자 켜짐' : '그림자 꺼짐'; };
+  $('b-hq').onclick = () => { sfx.click(); HQ = !HQ; store.set('td_hq', HQ); paintHq(); toast(HQ ? '그림자를 켰어요. 느리면 다시 꺼 주세요.' : '그림자를 껐어요. 더 가볍게 돌아가요.'); };
+  paintHq();
   $('b-solo-go').onclick = () => startRace({ ...soloCfg, online: false });
   $('b-online').onclick = async () => {
     sfx.click(); $('b-online').disabled = true;
@@ -665,5 +713,5 @@ function init() {
   init(); refreshMenuKart(); show('menu');
   $('loading').classList.add('hidden');
   requestAnimationFrame(frame);
-  window.__td = { get race() { return race; }, net, startRace, key, tap, profile }; // 테스트용
+  window.__td = { get frames() { return frames; }, info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles }), get race() { return race; }, net, startRace, key, tap, profile }; // 테스트용
 })();
