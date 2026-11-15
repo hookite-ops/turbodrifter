@@ -1,0 +1,16 @@
+{
+  "name": "turbodrifter",
+  "version": "1.0.0",
+  "description": "터보 드리프터 — 드리프트·부스터 카트 레이싱 (모바일 웹, 온라인 멀티)",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "private": true
+}
