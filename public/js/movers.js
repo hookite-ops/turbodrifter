@@ -3,7 +3,7 @@ import * as THREE from '../lib/three.bundle.js';
 import { GLTFLoader } from '../lib/three.bundle.js';
 
 // GLB가 있으면 그걸 쓰고, 없으면 간단한 도형으로 대신한다
-const FILES = { tumbleweed: 'assets/ob_tumbleweed.glb', penguin: 'assets/ob_penguin.glb', car: 'assets/ob_car.glb' };
+const FILES = { penguin: 'assets/ob_penguin.glb', car: 'assets/ob_car.glb' };
 const cache = {};
 function loadModel(name) {
   if (!cache[name]) cache[name] = new GLTFLoader().loadAsync(FILES[name]).then(g => g.scene).catch(() => null);
@@ -36,7 +36,7 @@ export function moverModels(theme, disposables, hq) {
       const core = new THREE.Mesh(ig, lam({ color: '#8a6136', transparent: true, opacity: 0.55 })); core.scale.setScalar(m.r * 0.55);
       ball.add(a, b, core); ball.position.y = m.r;
       const holder = new THREE.Group(); holder.add(ball); grp.add(holder);
-      swap(ball, 'tumbleweed', m.r * 2, new THREE.Group());
+      
       grp.userData.anim = (o, t, p) => { ball.rotation.x = t * 7 * (p.dir || 1); ball.position.y = m.r + Math.abs(Math.sin(t * 5.5)) * 0.9; };
       return grp;
     },
@@ -52,7 +52,7 @@ export function moverModels(theme, disposables, hq) {
       body.add(torso, belly, head, beak);
       body.traverse(o => { if (o.isMesh) o.castShadow = hq; });
       grp.add(body);
-      const wrap = new THREE.Group(); swap(wrap, 'penguin', 2.3, new THREE.Group()); grp.add(wrap);
+      const wrap = new THREE.Group(); swap(wrap, 'penguin', 1.9, new THREE.Group()); grp.add(wrap);
       grp.userData.anim = (o, t, p) => {   // 배로 미끄러지는 동작: 뒤뚱 + 앞으로 기울기
         const tgt = wrap.children.length ? wrap : body; body.visible = !wrap.userData.model;
         tgt.rotation.z = Math.sin(t * 9 + m.s) * 0.12; tgt.rotation.x = 0.35;
