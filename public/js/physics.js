@@ -40,7 +40,7 @@ export function createKart() {
     drifting: false, driftDir: 0, driftT: 0, slip: 0, kick: 0, armed: false, pendDir: 0,
     gauge: 0, boosts: 0, boostT: 0, instT: 0, instWin: 0,
     ti: 0, lat: 0, s: 0, lap: -1, prog: 0, wrongT: 0,
-    hitT: 0, padT: 0, airT: 0, air: false, vy: 0, surf: 0, bumpT: 0,
+    hitT: 0, padT: 0, airT: 0, air: false, vy: 0, surf: 0, bumpT: 0, sc: 0, pi: 0, ps: 0, prevSc: 0,
     finished: false, finishTime: 0,
     ev: {},   // 이번 프레임에 일어난 일 (효과음·이펙트용)
     _loc: {},
@@ -49,7 +49,7 @@ export function createKart() {
 
 export function placeKart(k, T, p) {
   k.x = p.x; k.z = p.z; k.y = p.y; k.h = p.h; k.mv = p.h; k.speed = 0;
-  k.ti = p.i; k.drifting = false; k.steer = 0; k.slip = 0; k.kick = 0; k.air = false; k.vy = 0;
+  k.ti = p.i; k.drifting = false; k.steer = 0; k.slip = 0; k.kick = 0; k.air = false; k.vy = 0; k.sc = 0;
   const L = locate(T, k.x, k.z, k.ti, 30, k._loc);
   k.ti = L.i; k.s = L.s; k.lat = L.lat;
 }
@@ -61,7 +61,8 @@ export function stepKart(k, inp, dt, T, rule) {
   const ev = k.ev = {};
   const inf = rule && rule.infinite;
   const air = k.air;
-  const surf = air ? 0 : T.surf[k.ti];          // 1 빙판, 2 물
+  let P = k.sc ? T.shortcuts[k.sc - 1] : T;      // 지금 달리는 길 (본 트랙 또는 지름길)
+  const surf = air ? 0 : P.surf[k.sc ? k.pi : k.ti];          // 1 빙판, 2 물
   const ice = surf === 1, water = surf === 2;
   k.surf = surf;
 
@@ -176,15 +177,32 @@ export function stepKart(k, inp, dt, T, rule) {
   k.z += Math.cos(k.mv) * k.speed * dt;
 
   // --- 트랙 위치·벽 충돌 ---
-  const prevTi = k.ti;
-  const L = locate(T, k.x, k.z, k.ti, 14, k._loc);
+  const prevTi = k.sc ? k.pi : k.ti, prevSc = k.sc;
+  let L = locate(P, k.x, k.z, prevTi, 14, k._loc);
   const prevS = k.s;
-  k.ti = L.i; k.s = L.s; k.lat = L.lat;
+  if (k.sc) {
+    // 지름길 양 끝: 본 트랙 도로 안으로 들어오면 본 트랙으로
+    if (L.s < 12 || L.s > P.length - 12) {
+      const Lm = locate(T, k.x, k.z, L.s < 12 ? P.iA : P.iB, 26, _lm);
+      const offS = Math.abs(L.lat) > P.hw[L.i] - C.radius || L.s > P.length - 1.5;   // 지름길 차선을 벗어났거나 끝에 닿음
+      if (offS && Math.abs(Lm.lat) < Lm.hw - C.radius * 0.6) { k.sc = 0; P = T; L = Object.assign(k._loc, Lm); }
+    }
+  } else if (T.shortcuts && T.shortcuts.length && Math.abs(L.lat) > L.hw - C.radius) {
+    // 벽 구멍으로 나가면 지름길로
+    const g = (L.lat > 0 ? T.gapL : T.gapR)[L.i];
+    if (g) {
+      const S = T.shortcuts[g - 1], d0 = Math.abs(L.i - S.iA), dA = Math.min(d0, T.n - d0);
+      const Ls = locate(S, k.x, k.z, dA < 40 ? 0 : S.n - 1, 30, _lm);
+      if (Math.abs(Ls.lat) < S.hw[Ls.i] + 1.2 && Ls.s < S.length - 1) { k.sc = g; P = S; L = Object.assign(k._loc, Ls); }
+    }
+  }
+  if (k.sc) { k.pi = L.i; k.ps = L.s; k.s = ((P.sA + L.s / P.length * (P.sB - P.sA)) % T.length + T.length) % T.length; k.ti = Math.floor(k.s / T.ds) % T.n; k.lat = 0; }
+  else { k.ti = L.i; k.s = L.s; k.lat = L.lat; }
   const lim = L.hw - C.radius;
   if (Math.abs(L.lat) > lim) {
     const side = Math.sign(L.lat);
     const over = Math.abs(L.lat) - lim;
-    k.x -= L.nx * side * over; k.z -= L.nz * side * over; k.lat = side * lim;
+    k.x -= L.nx * side * over; k.z -= L.nz * side * over; if (!k.sc) k.lat = side * lim;
     const vx = Math.sin(k.mv) * k.speed, vz = Math.cos(k.mv) * k.speed;
     const vn = (vx * L.nx + vz * L.nz) * side; // 벽 쪽으로 향하는 속도
     if (vn > 0) {
@@ -214,25 +232,27 @@ export function stepKart(k, inp, dt, T, rule) {
       ev.land = Math.max(0.1, -k.vy); k.y = L.y; k.air = false; k.vy = 0;
       if (ev.land > 11) k.speed *= 0.94;
     }
-  } else if (T.ramp[prevTi] && !T.ramp[k.ti] && k.speed > 6 && k.ti !== prevTi) {
-    const pi = (prevTi + T.n - 1) % T.n;
-    k.vy = k.speed * Math.max(0.05, (T.y[prevTi] - T.y[pi]) / T.ds);
-    k.y = T.y[prevTi]; k.air = true; k.airT = 0; ev.jump = k.vy;
+  } else if (prevSc === k.sc && P.ramp[prevTi] && !P.ramp[L.i] && k.speed > 6 && L.i !== prevTi) {
+    const pi = P.open ? Math.max(0, prevTi - 1) : (prevTi + P.n - 1) % P.n;
+    k.vy = k.speed * Math.max(0.05, (P.y[prevTi] - P.y[pi]) / P.ds);
+    k.y = P.y[prevTi]; k.air = true; k.airT = 0; ev.jump = k.vy;
   } else k.y = L.y;
 
   // --- 장애물 ---
   if (!k.air || k.y - L.y < 1.1) {
-    for (const o of T.obs) bumpInto(k, T, L, o.s, o.lat, o.r, o.soft, ev);
-    if (T.movers.length) {
+    const ks = k.sc ? k.ps : k.s;
+    for (const o of P.obs) bumpInto(k, P, L, ks, o.s, o.lat, o.r, o.soft, ev);
+    if (P.movers.length) {
       const tm = rule && rule.time || 0;
-      for (const m of T.movers) { moverAt(T, m, tm, _mp); if (_mp.edge > 0.5) bumpInto(k, T, L, _mp.s, _mp.lat, m.r, m.soft, ev); }
+      for (const m of P.movers) { moverAt(P, m, tm, _mp); if (_mp.edge > 0.5) bumpInto(k, P, L, ks, _mp.s, _mp.lat, m.r, m.soft, ev); }
     }
   }
+  k.prevSc = k.sc;
 
   // --- 부스터 발판 ---
-  for (const p of T.pads) {
-    let di = k.ti - p.i; if (di < 0) di += T.n;
-    if (di < p.len && Math.abs(k.lat - p.lat) < 3.2 && k.speed > 3 && !k.air) {
+  for (const p of P.pads) {
+    let di = L.i - p.i; if (di < 0 && !P.open) di += P.n;
+    if (di >= 0 && di < p.len && Math.abs(L.lat - p.lat) < 3.2 && k.speed > 3 && !k.air) {
       if (k.padT <= 0) ev.pad = true;
       k.padT = 1.1;
     }
@@ -247,14 +267,14 @@ export function stepKart(k, inp, dt, T, rule) {
   if (along < -0.35 && k.speed > 4) k.wrongT += dt; else k.wrongT = 0;
 }
 
-const _mp = {};
+const _mp = {}, _lm = {};
 // 원형 장애물(트랙 좌표 s, lat)과 부딪히기. soft = 짚더미·회전초처럼 밀리며 덜 손해
-function bumpInto(k, T, L, s, lat, r, soft, ev) {
-  let dsx = k.s - s; const half = T.length / 2;
-  if (dsx > half) dsx -= T.length; else if (dsx < -half) dsx += T.length;
+function bumpInto(k, T, L, ks, s, lat, r, soft, ev) {
+  let dsx = ks - s; const half = T.length / 2;
+  if (!T.open) { if (dsx > half) dsx -= T.length; else if (dsx < -half) dsx += T.length; }
   const R = r + C.radius * 0.9;
   if (dsx > R || dsx < -R) return;
-  const dl = k.lat - lat, d = Math.hypot(dsx, dl);
+  const dl = L.lat - lat, d = Math.hypot(dsx, dl);
   if (d >= R) return;
   const ux = d > 1e-4 ? dsx / d : -1, ul = d > 1e-4 ? dl / d : 0;
   const nx = L.tx * ux + L.nx * ul, nz = L.tz * ux + L.nz * ul;   // 장애물 → 카트 방향
@@ -301,24 +321,27 @@ export function pushApart(k, ox, oz, oy, ovx, ovz) {
 // ---------- AI 드라이버 (연습전·트랙 검증용) ----------
 // lag: 반응 지연(초). 사람처럼 늦게 반응해도 달릴 수 있는지 검증할 때 쓴다.
 export function createBot(skill = 0.8, lag = null) {
-  return { skill, lane: (Math.random() - 0.5) * 6, phase: 0, holdT: 0, wasDrift: false, instDelay: 0, boostWait: 0, stuckT: 0, revT: 0, t: Math.random() * 10, lag: lag == null ? (1 - skill) * 0.12 : lag, q: [] };
+  return { skill, useShort: skill > 0.75 && Math.random() < 0.6, lane: (Math.random() - 0.5) * 6, phase: 0, holdT: 0, wasDrift: false, instDelay: 0, boostWait: 0, stuckT: 0, revT: 0, t: Math.random() * 10, lag: lag == null ? (1 - skill) * 0.12 : lag, q: [] };
 }
 export function botInput(b, k, T, dt, time = 0) {
   b.t += dt;
-  const N = T.n;
+  const P = k.sc ? T.shortcuts[k.sc - 1] : T, N = P.n, open = !!P.open;   // 지금 달리는 길
+  const id = j => open ? (j < 0 ? 0 : j > N - 1 ? N - 1 : j) : ((j % N) + N) % N;
+  const ks = k.sc ? k.ps : k.s, kti = k.sc ? k.pi : k.ti;
   const look = 7 + k.speed * 0.45;
-  const li = Math.floor((k.s + look) / T.ds) % N;
-  const lane = clamp(b.lane + Math.sin(b.t * 0.3) * 1.5, -(T.hw[li] - 3), T.hw[li] - 3);
+  const li = id(Math.floor((ks + look) / P.ds));
+  const lane = k.sc ? 0 : clamp(b.lane + Math.sin(b.t * 0.3) * 1.5, -(P.hw[li] - 3), P.hw[li] - 3);
   let cAhead = 0;
-  for (let j = 0; j < 14; j++) cAhead += T.curv[(k.ti + 4 + j * 2) % N];
+  for (let j = 0; j < 14; j++) cAhead += P.curv[id(kti + 4 + j * 2)];
   cAhead /= 14;
-  const apex = clamp(cAhead * 120, -1, 1) * T.hw[li] * (0.12 + b.skill * 0.2);   // 코너 안쪽으로 살짝 붙기
-  let tl = clamp(lane * 0.4 + apex, -(T.hw[li] - 2.6), T.hw[li] - 2.6);
+  const apex = clamp(cAhead * 120, -1, 1) * P.hw[li] * (0.12 + b.skill * 0.2);   // 코너 안쪽으로 살짝 붙기
+  let tl = clamp(lane * 0.4 + apex, -(P.hw[li] - 2.6), Math.max(0, P.hw[li] - 2.6));
+  if (k.sc) tl = clamp(tl, -(P.hw[li] - 1.8), P.hw[li] - 1.8);
   // 앞의 장애물 피하기 (실력이 낮을수록 늦게 본다)
-  if (T.obs.length || T.movers.length) {
-    const see = 10 + k.speed * (0.7 + b.skill * 0.6), room = T.hw[li] - 2.2;
+  if (P.obs.length || P.movers.length) {
+    const see = 10 + k.speed * (0.7 + b.skill * 0.6), room = P.hw[li] - 2.2;
     const avoid = (s, lat, r) => {
-      let d = s - k.s; if (d < -T.length / 2) d += T.length; else if (d > T.length / 2) d -= T.length;
+      let d = s - ks; if (!open) { if (d < -P.length / 2) d += P.length; else if (d > P.length / 2) d -= P.length; }
       if (d < -1 || d > see) return;
       const need = r + 2.3;
       if (Math.abs(tl - lat) >= need) return;
@@ -327,18 +350,36 @@ export function botInput(b, k, T, dt, time = 0) {
       tl = okL && okR ? (Math.abs(L1 - tl) < Math.abs(R1 - tl) ? L1 : R1) : okL ? L1 : okR ? R1 : tl;
     };
     for (let pass = 0; pass < 2; pass++) {
-      for (const o of T.obs) avoid(o.s, o.lat, o.r);
-      for (const m of T.movers) { moverAt(T, m, time + 0.4, _mp); if (_mp.edge > 0.3) avoid(_mp.s, _mp.lat, m.r + (m.type === 'cross' ? Math.abs(m.a) * 0.3 : 0)); }
+      for (const o of P.obs) avoid(o.s, o.lat, o.r);
+      for (const m of P.movers) { moverAt(P, m, time + 0.4, _mp); if (_mp.edge > 0.3) avoid(_mp.s, _mp.lat, m.r + (m.type === 'cross' ? Math.abs(m.a) * 0.3 : 0)); }
     }
   }
-  const tx = T.x[li] + T.nx[li] * tl, tz = T.z[li] + T.nz[li] * tl;
+  let tx = P.x[li] + P.nx[li] * tl, tz = P.z[li] + P.nz[li] * tl;
+  // 지름길을 아는 봇: 입구가 가까우면 지름길 경로를 따라간다
+  let CP = P, cti = kti, cid = id;
+  if (k.sc) b.commit = 0;
+  if (!k.sc && b.useShort && T.shortcuts && T.shortcuts.length) {
+    for (const S of T.shortcuts) {
+      let d = S.sA - k.s; if (d < -T.length / 2) d += T.length;
+      if (b.commit === S.id + 1 && d < -60) b.commit = 0;
+      if ((d > -3 && d < look + 25) || b.commit === S.id + 1) {
+        b.commit = S.id + 1;
+        // 지름길 위 내 위치(입구 지난 뒤엔 실제 위치)에서 look만큼 앞
+        let sp = Math.max(0, -d); if (d < 0) { const Ls = locate(S, k.x, k.z, Math.round(sp / S.ds), 20, _lm); sp = Ls.s; }
+        const si = Math.max(2, Math.min(S.n - 1, Math.round((sp + look - Math.max(0, d)) / S.ds)));
+        tx = S.x[si]; tz = S.z[si];
+        CP = S; cti = Math.max(0, Math.round(sp / S.ds)); cid = j => j < 0 ? 0 : j > S.n - 1 ? S.n - 1 : j;
+        break;
+      }
+    }
+  }
   const des = Math.atan2(tx - k.x, tz - k.z);
   const err = wrap(des - k.mv);
   const inp = { steer: clamp(err * 3, -1, 1), accel: true, brake: false, drift: false, driftTap: false, boostTap: false, accelTap: false };
   let cMax = 0;
-  for (let j = 0; j < 10; j++) { const c = T.curv[(k.ti + 3 + j * 2) % N]; if (Math.abs(c) > Math.abs(cMax)) cMax = c; }
+  for (let j = 0; j < 10; j++) { const c = CP.curv[cid(cti + 3 + j * 2)]; if (Math.abs(c) > Math.abs(cMax)) cMax = c; }
   const need = Math.abs(cMax) * k.speed;                              // 이 코너를 도는 데 필요한 회전 속도
-  let bend = 0; for (let j = 0; j < 24; j++) bend += T.curv[(k.ti + 2 + j) % N] * T.ds;   // 앞 48m 동안 꺾이는 총 각도
+  let bend = 0; for (let j = 0; j < 24; j++) bend += CP.curv[cid(cti + 2 + j)] * CP.ds;   // 앞 48m 동안 꺾이는 총 각도
   if (!k.drifting) {
     b.phase = 0;
     const thr = gripYaw(k.speed) * (0.5 + (1 - b.skill) * 0.3);

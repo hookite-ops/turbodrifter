@@ -133,15 +133,21 @@ export function buildWorld(T, opt = {}) {
   const sky = new THREE.Mesh(skyGeo, skyMat); sky.renderOrder = -10; sky.position.set(cx, 0, cz); g.add(sky); disposables.push(skyGeo, skyMat);
 
   // ----- 트랙 근처 검사용 격자 -----
+  // 본 트랙 + 지름길 점을 한 배열로 (지형·소품 배치용)
+  const SCs = T.shortcuts || [];
+  const TOT = N + SCs.reduce((a, S) => a + S.n, 0);
+  const PX = new Float32Array(TOT), PZ = new Float32Array(TOT), PY = new Float32Array(TOT), PW = new Float32Array(TOT), PC = new Float32Array(TOT);
+  PX.set(T.x); PZ.set(T.z); PY.set(T.y); PW.set(T.hw); PC.set(T.cliff);
+  { let o = N; for (const S of SCs) { PX.set(S.x, o); PZ.set(S.z, o); PY.set(S.y, o); PW.set(S.hw, o); PC.set(S.cliff, o); o += S.n; } }
   const CELL = 20, grid = new Map();
-  for (let i = 0; i < N; i++) { const k = Math.floor(T.x[i] / CELL) + ',' + Math.floor(T.z[i] / CELL); (grid.get(k) || grid.set(k, []).get(k)).push(i); }
+  for (let i = 0; i < TOT; i++) { const k = Math.floor(PX[i] / CELL) + ',' + Math.floor(PZ[i] / CELL); (grid.get(k) || grid.set(k, []).get(k)).push(i); }
   const nearTrack = (x, z, margin, skipFrom = -1, skipWin = 0) => {
     const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL), rr = Math.ceil((margin + 12) / CELL);
     for (let a = -rr; a <= rr; a++) for (let b = -rr; b <= rr; b++) {
       const l = grid.get((gx + a) + ',' + (gz + b)); if (!l) continue;
       for (const i of l) {
-        if (skipFrom >= 0) { let d = Math.abs(i - skipFrom); d = Math.min(d, N - d); if (d < skipWin) continue; }
-        if (Math.hypot(T.x[i] - x, T.z[i] - z) < T.hw[i] + margin) return true;
+        if (skipFrom >= 0 && i < N) { let d = Math.abs(i - skipFrom); d = Math.min(d, N - d); if (d < skipWin) continue; }
+        if (Math.hypot(PX[i] - x, PZ[i] - z) < PW[i] + margin) return true;
       }
     }
     return false;
@@ -152,11 +158,11 @@ export function buildWorld(T, opt = {}) {
     const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL); let n = 0, best = 1e9, bi = 0;
     for (let a = -4; a <= 4; a++) for (let b = -4; b <= 4; b++) {
       const l = grid.get((gx + a) + ',' + (gz + b)); if (!l) continue;
-      for (const i of l) { const d = Math.hypot(T.x[i] - x, T.z[i] - z) - T.hw[i]; cd[n] = d; cy[n++] = T.y[i]; if (d < best) { best = d; bi = i; } }
+      for (const i of l) { const d = Math.hypot(PX[i] - x, PZ[i] - z) - PW[i]; cd[n] = d; cy[n++] = PY[i]; if (d < best) { best = d; bi = i; } }
     }
     if (!n) return [90, 0, 0];
     let base = 1e9; for (let i = 0; i < n; i++) if (cd[i] <= best + 7 && cy[i] < base) base = cy[i];
-    return [best, base, T.cliff[bi]];
+    return [best, base, PC[bi]];
   };
 
   // 개울(도로를 가로지르는 물길)과 절벽 정보
@@ -229,10 +235,36 @@ export function buildWorld(T, opt = {}) {
   const wallMat = th.night ? basic({ map: wallTex, side: THREE.DoubleSide }) : lam({ map: wallTex, side: THREE.DoubleSide });
   const WH = 1.0, WT = 0.6, SK = -1.7;
   const deckMat = lam({ color: th.deck, side: THREE.DoubleSide });
-  for (const s of [1, -1]) {
-    const w = L(strip(T, i => s * (T.hw[i] + 0.05), 0, i => s * (T.hw[i] + 0.05), WH, 8), wallMat); w.receiveShadow = true;
-    L(strip(T, i => s * (T.hw[i] + 0.05), WH, i => s * (T.hw[i] + WT), WH, 8, 0, 0.5), wallMat);
-    L(strip(T, i => s * (T.hw[i] + WT), WH, i => s * (T.hw[i] + WT), SK, 8), deckMat);
+  // 벽은 지름길 입구(구멍)를 빼고 이어진 구간마다 만든다
+  const runs = (P, ok) => { const out = []; const n = P.n, open = P.open; let i = 0;
+    if (!open && ok(0)) { let b = n - 1; while (b > 0 && ok(b)) b--; if (b === 0) return [[0, n]]; i = 0; }
+    while (i < n) { if (!ok(i)) { i++; continue; } let j = i; while (j < n && ok(j)) j++; out.push([i, j - i]); i = j; }
+    if (!open && out.length > 1 && out[0][0] === 0 && out[out.length - 1][0] + out[out.length - 1][1] === n) { const last = out.pop(); out[0] = [last[0], last[1] + out[0][1]]; }
+    return out; };
+  const wallsFor = (P, s, ok, mat = wallMat, dmat = deckMat) => {
+    for (const [i0, cnt] of runs(P, ok)) {
+      if (cnt < 1) continue;
+      const c = P.open ? Math.min(cnt, P.n - 1 - i0) : cnt; if (c < 1) continue;
+      const w = L(strip(P, i => s * (P.hw[i] + 0.05), 0, i => s * (P.hw[i] + 0.05), WH, 8, 0, 1, i0, c), mat); w.receiveShadow = true;
+      L(strip(P, i => s * (P.hw[i] + 0.05), WH, i => s * (P.hw[i] + WT), WH, 8, 0, 0.5, i0, c), mat);
+      L(strip(P, i => s * (P.hw[i] + WT), WH, i => s * (P.hw[i] + WT), SK, 8, 0, 1, i0, c), dmat);
+    }
+  };
+  const gapL = T.gapL || new Uint8Array(N), gapR = T.gapR || new Uint8Array(N);
+  wallsFor(T, 1, i => !gapL[i]); wallsFor(T, -1, i => !gapR[i]);
+  // ----- 지름길 도로·벽 -----
+  for (const S of SCs) {
+    const dirtTex = canvasTex(256, 256, (c, w, h) => {
+      const base = theme === 'city' ? '#2b2c3c' : theme === 'desert' ? '#c99a5e' : '#8a7a5a';
+      c.fillStyle = base; c.fillRect(0, 0, w, h);
+      for (let k = 0; k < 2600; k++) { c.fillStyle = `rgba(${R() < 0.5 ? '0,0,0' : '255,255,255'},${0.04 + R() * 0.08})`; c.fillRect(R() * w, R() * h, 1 + R() * 3, 1 + R() * 3); }
+      if (theme === 'city') { c.fillStyle = '#ff3fa4'; c.fillRect(0, 0, 8, h); c.fillRect(w - 8, 0, 8, h); }
+      else { c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 10; for (const x of [w * 0.3, w * 0.7]) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); } }
+    });
+    const sr = L(strip(S, i => S.hw[i], 0.015, i => -S.hw[i], 0.015, 14, 0, 1, 0, S.n - 1), lam({ map: dirtTex, side: THREE.DoubleSide })); sr.receiveShadow = true;
+    const fenceTex = canvasTex(128, 32, (c, w, h) => { c.fillStyle = theme === 'city' ? '#2ef2ff' : '#8a5a34'; c.fillRect(0, 0, w, h); c.fillStyle = theme === 'city' ? '#ff3fa4' : '#6a4024'; for (let k = 0; k < 4; k++) c.fillRect(k * 32, 0, 6, h); c.fillStyle = 'rgba(255,255,255,0.25)'; c.fillRect(0, 0, w, 4); });
+    const fm = th.night ? basic({ map: fenceTex, side: THREE.DoubleSide }) : lam({ map: fenceTex, side: THREE.DoubleSide });
+    for (const sd of [1, -1]) wallsFor(S, sd, i => S.out[i] && S.out[Math.max(0, i - 1)] && S.out[Math.min(S.n - 1, i + 1)], fm, deckMat);
   }
   // 고가 구간 (지형보다 높이 떠 있는 곳): 바닥면과 기둥
   const gap = new Float32Array(N); let hasHigh = false;
@@ -288,8 +320,8 @@ export function buildWorld(T, opt = {}) {
     for (let k = -1; k < 3; k++) { c.beginPath(); c.moveTo(6, k * 32 + 4); c.lineTo(32, k * 32 + 26); c.lineTo(58, k * 32 + 4); c.stroke(); }
   });
   const padMat = decal({ map: padTex, transparent: false });
-  for (const p of T.pads) {
-    const q = strip(T, p.lat + 3.2, 0.06, p.lat - 3.2, 0.06, 0, 0, 1, p.i, p.len);
+  for (const [P, p] of [...T.pads.map(p => [T, p]), ...(T.shortcuts || []).flatMap(S => S.pads.map(p => [S, p]))]) {
+    const q = strip(P, p.lat + 3.2, 0.06, p.lat - 3.2, 0.06, 0, 0, 1, p.i, P.open ? Math.min(p.len, P.n - 1 - p.i) : p.len);
     const uvA = q.attributes.uv; for (let r = 0; r <= p.len; r++) { uvA.setY(r * 2, r * 0.5); uvA.setY(r * 2 + 1, r * 0.5); }
     L(q, padMat);
   }

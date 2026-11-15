@@ -50,6 +50,10 @@ export const TRACKS = [
       { at: { e: 6, t: 0.55 }, lat: 4.5, r: 1.7, kind: 'rock' },
       { at: { e: 13, t: 0.45 }, lat: -4, r: 1.8, kind: 'rock' }, { at: { e: 13, t: 0.5 }, lat: -6.8, r: 1.3, kind: 'rock' },
     ],
+    // 지름길: 헤어핀 안쪽 바위 협곡을 S자로 가로지른다 (좁고 바위가 있어 실수하면 손해)
+    shortcuts: [{ from: { e: 2, t: 0.33 }, to: { e: 5, t: 0.4 }, hw: 4.3, cliff: 0.8,
+      pts: [[114, 186, 12], [142, 160, 14], [118, 126, 14], [101, 100, 12]],
+      obs: [{ at: 0.36, lat: 1.8, r: 1.1, kind: 'rock' }, { at: 0.62, lat: -1.9, r: 1.1, kind: 'rock' }] }],
     movers: [
       { kind: 'cross', model: 'tumbleweed', at: { e: 16, t: 0.15 }, a: 5.2, period: 3.4, phase: 0, r: 1.1 },
       { kind: 'cross', model: 'tumbleweed', at: { e: 16, t: 0.55 }, a: 5.2, period: 2.7, phase: 0.4, r: 1.1 },
@@ -98,6 +102,11 @@ export const TRACKS = [
       { at: { e: 14, t: 0.6 }, lat: -4.5, r: 0.9, kind: 'cone', soft: true }, { at: { e: 14, t: 0.6 }, lat: -2.6, r: 0.9, kind: 'cone', soft: true },
       { at: { e: 2, t: 0.5 }, lat: 0, r: 0.9, kind: 'cone', soft: true },
     ],
+    // 지름길: 직각 코너를 꺾지 않고 곧장 뒷골목으로 — 지그재그라 드리프트를 잘 끊어야 이득
+    shortcuts: [{ from: { e: 11, t: 0.86 }, to: { e: 15, t: 0.2 }, hw: 4.3, kind: 'alley',
+      pts: [[186, -178, 8], [168, -197, 8], [149, -167, 8], [130, -192, 8]],
+      obs: [{ at: 0.5, lat: 2.2, r: 0.9, kind: 'cone', soft: true }],
+      pads: [{ at: 0.84, lat: 0 }] }],
     movers: [
       { kind: 'traffic', model: 'car', from: { e: 0, t: 0.64 }, to: { e: 0, t: 0.97 }, lanes: [5.5, -5.5], count: 2, speed: 17, r: 1.9 },
       { kind: 'traffic', model: 'car', from: { e: 0, t: 0.04 }, to: { e: 0, t: 0.38 }, lanes: [5.5, -5.5], count: 2, speed: 17, r: 1.9 },
@@ -256,7 +265,92 @@ export function buildTrack(def, step = 2) {
       T.movers.push({ type: 'cross', model: mv.model, s: i * ds, i, a: mv.a, period: mv.period, phase: mv.phase || 0, r: mv.r || 1.1, soft: true });
     }
   }
+  T.shortcuts = (def.shortcuts || []).map((sd, k) => buildShortcut(T, sd, k));
   return T;
+}
+
+// ----- 지름길: 본 트랙 두 지점을 잇는 좁은 샛길 (열린 경로) -----
+// sd = {from, to, pts:[[x,z,반지름,높이?],...], hw, obs:[{at(0~1), lat, r, kind}], pads:[{at, lat}], jumps:[{at, len, rise}]}
+function buildShortcut(T, sd, k) {
+  const iA = T.iOf(sd.from), iB = T.iOf(sd.to), hw = sd.hw || 4.5;
+  const V = [{ x: T.x[iA], z: T.z[iA], y: T.y[iA], r: 0 }, ...sd.pts.map(p => ({ x: p[0], z: p[1], r: p[2] || 0, y: p[3] })), { x: T.x[iB], z: T.z[iB], y: T.y[iB], r: 0 }];
+  // 높이가 비어 있는 꼭짓점은 앞뒤를 거리 비율로 채운다
+  const dv = [0]; for (let q = 1; q < V.length; q++) dv.push(dv[q - 1] + Math.hypot(V[q].x - V[q - 1].x, V[q].z - V[q - 1].z));
+  for (let q = 1; q < V.length - 1; q++) if (V[q].y === undefined) {
+    let a = q - 1, b = q + 1; while (V[b].y === undefined) b++;
+    V[q].y = V[a].y + (V[b].y - V[a].y) * (dv[q] - dv[a]) / (dv[b] - dv[a]);
+  }
+  const fine = [], fy = [];
+  const push = (x, z, y) => { fine.push([x, z]); fy.push(y); };
+  const line = (x0, z0, y0, x1, z1, y1) => { const l = Math.hypot(x1 - x0, z1 - z0), m = Math.max(1, Math.ceil(l / 0.5)); for (let j = 0; j < m; j++) push(x0 + (x1 - x0) * j / m, z0 + (z1 - z0) * j / m, y0 + (y1 - y0) * j / m); };
+  let cx = V[0].x, cz = V[0].z, cy = V[0].y;
+  for (let q = 1; q < V.length - 1; q++) {
+    const a = V[q - 1], b = V[q], c = V[q + 1];
+    let ix = b.x - a.x, iz = b.z - a.z; const il = Math.hypot(ix, iz); ix /= il; iz /= il;
+    let ox = c.x - b.x, oz = c.z - b.z; const ol = Math.hypot(ox, oz); ox /= ol; oz /= ol;
+    const th = Math.atan2(ix * oz - iz * ox, ix * ox + iz * oz);
+    let t = Math.abs(th) < 0.02 || !b.r ? 0 : b.r * Math.tan(Math.abs(th) / 2); t = Math.min(t, il * 0.45, ol * 0.45);
+    const ex = b.x - ix * t, ez = b.z - iz * t;
+    line(cx, cz, cy, ex, ez, b.y);
+    if (t > 0) {
+      const sgn = Math.sign(th), r = t / Math.tan(Math.abs(th) / 2), lx = -iz * sgn, lz = ix * sgn, ocx = ex + lx * r, ocz = ez + lz * r;
+      const a0 = Math.atan2(ez - ocz, ex - ocx), m = Math.max(2, Math.ceil(r * Math.abs(th) / 0.5));
+      for (let j = 0; j < m; j++) { const an = a0 + th * j / m; push(ocx + Math.cos(an) * r, ocz + Math.sin(an) * r, b.y); }
+      cx = b.x + ox * t; cz = b.z + oz * t;
+    } else { cx = b.x; cz = b.z; }
+    cy = b.y;
+  }
+  const E = V[V.length - 1]; line(cx, cz, cy, E.x, E.z, E.y); push(E.x, E.z, E.y);
+  const m = fine.length, cum = [0];
+  for (let i = 1; i < m; i++) cum.push(cum[i - 1] + Math.hypot(fine[i][0] - fine[i - 1][0], fine[i][1] - fine[i - 1][1]));
+  const total = cum[m - 1], n = Math.max(4, Math.round(total / 2) + 1), ds = total / (n - 1);
+  const S = {
+    open: true, id: k, n, ds, length: total, iA, iB, hw, kind: sd.kind || 'dirt',
+    x: new Float32Array(n), z: new Float32Array(n), y: new Float32Array(n), hw: new Float32Array(n).fill(hw),
+    tx: new Float32Array(n), tz: new Float32Array(n), nx: new Float32Array(n), nz: new Float32Array(n),
+    curv: new Float32Array(n), slope: new Float32Array(n), surf: new Uint8Array(n), tunnel: new Uint8Array(n), cliff: new Float32Array(n), ramp: new Uint8Array(n),
+    out: new Uint8Array(n),
+  };
+  let q = 0;
+  for (let i = 0; i < n; i++) {
+    const d = i * ds; while (q < m - 2 && cum[q + 1] < d) q++;
+    const t = Math.min(1, (d - cum[q]) / Math.max(1e-6, cum[q + 1] - cum[q]));
+    S.x[i] = fine[q][0] + (fine[q + 1][0] - fine[q][0]) * t; S.z[i] = fine[q][1] + (fine[q + 1][1] - fine[q][1]) * t; S.y[i] = fy[q] + (fy[q + 1] - fy[q]) * t;
+  }
+  for (let pass = 0; pass < 4; pass++) { const X = S.x.slice(), Z = S.z.slice(), Y = S.y.slice(); for (let i = 1; i < n - 1; i++) { S.x[i] = X[i] * 0.5 + (X[i - 1] + X[i + 1]) * 0.25; S.z[i] = Z[i] * 0.5 + (Z[i - 1] + Z[i + 1]) * 0.25; S.y[i] = Y[i] * 0.5 + (Y[i - 1] + Y[i + 1]) * 0.25; } }
+  // 지름길 위 점프대
+  for (const j of (sd.jumps || [])) { const i0 = Math.round(j.at * (n - 1)), cnt = Math.max(3, Math.round((j.len || 10) / ds)); for (let r = 0; r <= cnt && i0 + r < n; r++) { S.y[i0 + r] += (j.rise || 2) * Math.pow(r / cnt, 1.25); S.ramp[i0 + r] = 1; } }
+  for (let i = 0; i < n; i++) {
+    const p = Math.max(0, i - 1), r = Math.min(n - 1, i + 1);
+    let dx = S.x[r] - S.x[p], dz = S.z[r] - S.z[p]; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+    S.tx[i] = dx; S.tz[i] = dz; S.nx[i] = dz; S.nz[i] = -dx; S.slope[i] = (S.y[r] - S.y[p]) / l;
+  }
+  for (let i = 0; i < n; i++) {
+    const p = Math.max(0, i - 2), r = Math.min(n - 1, i + 2);
+    let da = Math.atan2(S.tx[r], S.tz[r]) - Math.atan2(S.tx[p], S.tz[p]); while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+    S.curv[i] = da / Math.max(ds, (r - p) * ds);
+  }
+  let sB = iB * T.ds; const sA = iA * T.ds; if (sB < sA) sB += T.length;
+  S.sA = sA; S.sB = sB; S.saves = Math.round(sB - sA - total);
+  // 본 트랙 벽에 구멍 내기: 지름길 도로가 본 트랙 벽선을 지나는 곳
+  if (!T.gapL) { T.gapL = new Uint8Array(T.n); T.gapR = new Uint8Array(T.n); }
+  const tmp = {}; let hint = iA;
+  for (let i = 0; i < n; i++) {
+    const near = i < n / 2 ? iA : iB;
+    const L = locate(T, S.x[i], S.z[i], i < n / 2 ? hint : near, 40, tmp);
+    if (i < n / 2) hint = L.i;
+    const al = Math.abs(L.lat);
+    S.out[i] = al > L.hw + 0.4 ? 1 : 0;
+    if (al > L.hw - hw - 1.5 && al < L.hw + hw + 1.5) {
+      const g = L.lat > 0 ? T.gapL : T.gapR, w = Math.ceil((hw + 0.5) / T.ds);
+      for (let o = -w; o <= w; o++) g[(L.i + o + T.n) % T.n] = k + 1;
+    }
+  }
+  if (sd.cliff) for (let i = 0; i < n; i++) S.cliff[i] = S.out[i] ? sd.cliff * Math.min(1, i / 6, (n - 1 - i) / 6) : 0;
+  S.obs = (sd.obs || []).map(o => { const i = Math.round(o.at * (n - 1)); return { i, s: i * ds, lat: o.lat || 0, r: o.r || 1.2, kind: o.kind || 'rock', soft: !!o.soft }; });
+  S.pads = (sd.pads || []).map(p => ({ i: Math.round(p.at * (n - 1)), lat: p.lat || 0, len: 5 }));
+  S.jumps = []; S.zones = []; S.movers = [];
+  return S;
 }
 
 // 움직이는 장애물의 현재 위치 (경기 시간으로 정해지므로 모든 플레이어에게 같다)
@@ -270,8 +364,10 @@ export function moverAt(T, m, time, out = {}) {
 export function locate(T, x, z, hint, win = 14, out) {
   const N = T.n;
   let best = 1e18, bi = hint, bt = 0;
+  const open = T.open;
   for (let o = -win; o <= win; o++) {
-    const i = ((hint + o) % N + N) % N, j = (i + 1) % N;
+    let i = hint + o; if (open) { if (i < 0 || i > N - 2) continue; } else i = (i % N + N) % N;
+    const j = open ? i + 1 : (i + 1) % N;
     const ax = T.x[i], az = T.z[i], bx = T.x[j] - ax, bz = T.z[j] - az;
     const l2 = bx * bx + bz * bz;
     let t = ((x - ax) * bx + (z - az) * bz) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
@@ -279,7 +375,8 @@ export function locate(T, x, z, hint, win = 14, out) {
     const d = dx * dx + dz * dz;
     if (d < best) { best = d; bi = i; bt = t; }
   }
-  const j = (bi + 1) % N;
+  if (open) bi = Math.max(0, Math.min(N - 2, bi));
+  const j = open ? bi + 1 : (bi + 1) % N;
   const cx = T.x[bi] + (T.x[j] - T.x[bi]) * bt, cz = T.z[bi] + (T.z[j] - T.z[bi]) * bt;
   const nx = T.nx[bi] + (T.nx[j] - T.nx[bi]) * bt, nz = T.nz[bi] + (T.nz[j] - T.nz[bi]) * bt;
   const o = out || {};

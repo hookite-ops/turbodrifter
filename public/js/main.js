@@ -166,6 +166,10 @@ function drawTrack(cv, T, lw = 7, bg = null) {
   c.lineJoin = c.lineCap = 'round';
   path(); c.strokeStyle = 'rgba(13,19,48,.85)'; c.lineWidth = lw + 5; c.stroke();
   path(); c.strokeStyle = '#ffffff'; c.lineWidth = lw; c.stroke();
+  for (const S of (T.shortcuts || [])) {   // 지름길: 점선
+    c.beginPath(); for (let i = 0; i < S.n; i += 2) { const [x, y] = P.map(S.x[i], S.z[i]); i ? c.lineTo(x, y) : c.moveTo(x, y); }
+    c.setLineDash([lw * 0.9, lw * 0.7]); c.strokeStyle = 'rgba(255,210,30,0.95)'; c.lineWidth = Math.max(2, lw * 0.45); c.stroke(); c.setLineDash([]);
+  }
   const [sx, sy] = P.map(T.x[0], T.z[0]); c.fillStyle = '#ff4d42'; c.beginPath(); c.arc(sx, sy, lw * 0.9, 0, 7); c.fill();
   return P;
 }

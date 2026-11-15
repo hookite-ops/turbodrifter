@@ -175,7 +175,8 @@ export function buildFeatures(T, H) {
   const hayTop = canvasTex(64, 64, (c, w, h) => { c.fillStyle = '#d8a83e'; c.fillRect(0, 0, w, h); c.strokeStyle = 'rgba(110,70,20,0.5)'; for (let r = 4; r < 32; r += 4) { c.beginPath(); c.arc(32, 32, r, 0, 7); c.stroke(); } }, false);
   const byKind = {};
   for (const o of T.obs) (byKind[o.kind] = byKind[o.kind] || []).push(o);
-  const at = o => { const p = pointAt(T, o.s, o.lat); return p; };
+  for (const S of (T.shortcuts || [])) for (const o of S.obs) (byKind[o.kind] = byKind[o.kind] || []).push({ ...o, P: S });
+  const at = o => pointAt(o.P || T, o.s, o.lat);
   if (byKind.hay) {
     const geo = new THREE.CylinderGeometry(1, 1, 1, 18); disposables.push(geo);
     const items = byKind.hay.map(o => { const p = at(o); return { x: p.x, z: p.z, y: p.y + 0.9, sx: o.r, sy: 1.8, sz: o.r, ry: R() * 6 }; });
