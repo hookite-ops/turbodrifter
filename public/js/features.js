@@ -125,7 +125,7 @@ export function buildFeatures(T, H) {
       if (st === 'mine' || st === 'icecave') {
         const hump = [];
         for (let k = 0; k <= 10; k++) { const t = Math.PI * k / 10; hump.push([Math.cos(t) * 1.9, Math.sin(t) * (st === 'mine' ? 15 : 12) + 0.2]); }
-        const hm = st === 'mine' ? lam({ color: th.cliff || th.mount, flatShading: true, side: THREE.DoubleSide }) : new THREE.MeshPhongMaterial({ color: '#e6f6ff', flatShading: true, shininess: 60, side: THREE.DoubleSide });
+        const hm = st === 'mine' ? lam({ color: th.cliff || th.mount, flatShading: true, side: THREE.DoubleSide }) : new THREE.MeshPhongMaterial({ color: '#f4fbff', emissive: '#4a6a85', flatShading: true, shininess: 60, side: THREE.DoubleSide });
         if (st === 'icecave') disposables.push(hm);
         // 입구 쪽은 낮게 깎아 둥근 언덕 모양으로
         const hg = shell(i0 + 2, cnt - 4, hump, hm, 10, 1.2);

@@ -59,13 +59,25 @@ export const TRACKS = [
   },
   {
     id: 'lake', name: '얼음 호수 8자 다리', theme: 'ice', level: '★★☆', laps: 3,
-    desc: '다리 위아래로 엇갈리는 8자 코스. 길게 끄는 드리프트가 잘 먹힌다.',
+    desc: '다리 꼭대기에서 점프하고, 얼어붙은 호수 위 빙판을 길게 미끄러진다. 펭귄 조심!',
     hw: 9.5,
     pts: sc([
       [260, 60, 36, 0], [260, -60, 36, 0], [150, -150, 36, 2], [0, 0, 0, 9.5], [-150, 150, 36, 2],
-      [-260, 60, 36, 0], [-260, -60, 36, 0], [-150, -150, 36, 0], [0, 0, 0, 0], [150, 150, 36, 0],
+      [-260, 60, 36, 0, 10.5], [-260, -60, 36, 0, 10.5], [-150, -150, 36, 0, 11], [0, 0, 0, 0, 13], [150, 150, 36, 0, 11],
     ], 0.72),
-    pads: [0.5],
+    pads: [{ at: { e: 2, t: 0.35 }, lat: 0 }, { at: { e: 7, t: 0.08 }, lat: 0 }],
+    zones: [
+      { from: { e: 7, t: 0.12 }, to: { e: 8, t: 0.88 }, kind: 'ice' },
+      { from: { c: 5, t: 0.25 }, to: { c: 6, t: 0.75 }, kind: 'tunnel', style: 'icecave' },
+      { from: { c: 5, t: 0.0 }, to: { c: 6, t: 1.0 }, kind: 'cliff', amt: 0.5 },
+    ],
+    jumps: [{ at: { e: 2, t: 0.8 }, len: 10, rise: 1.6 }],
+    obs: [],
+    movers: [
+      { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.35 }, a: 10, period: 5.2, phase: 0, r: 1.0 },
+      { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.62 }, a: 10, period: 4.4, phase: 0.5, r: 1.0 },
+      { kind: 'cross', model: 'penguin', at: { e: 4, t: 0.5 }, a: 7, period: 3.6, phase: 0.25, r: 1.0 },
+    ],
   },
   {
     id: 'neon', name: '네온 시티 하이웨이', theme: 'city', level: '★★★', laps: 2,
