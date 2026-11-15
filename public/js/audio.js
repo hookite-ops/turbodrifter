@@ -84,3 +84,49 @@ export const sfx = {
   lap() { [784, 988, 1175].forEach((f, i) => setTimeout(() => this.tone(f, 0.14, 'triangle', 0.2), i * 90)); },
   finish() { [523, 659, 784, 1047, 1319].forEach((f, i) => setTimeout(() => this.tone(f, 0.22, 'triangle', 0.22), i * 110)); },
 };
+
+// ---------- 배경음악 (MintoDog, CC0 — OpenGameArt) ----------
+// 트랙마다 기본곡 + 마지막 바퀴용 빠른 곡. 오디오 요소 두 개로 겹쳐 바꾼다.
+const BGM_EXT = (() => { try { return document.createElement('audio').canPlayType('audio/ogg; codecs="vorbis"') ? 'ogg' : 'mp3'; } catch (e) { return 'mp3'; } })();
+let bgmOn = true; try { bgmOn = localStorage.getItem('td_music') !== '0'; } catch (e) {}
+export const music = {
+  vol: 0.42, want: '', cur: null, curName: '', unlocked: false, fades: [],
+  get on() { return bgmOn; },
+  level() { return bgmOn && !muted ? this.vol : 0; },
+  unlock() { if (this.unlocked) return; this.unlocked = true; if (this.want) this.play(this.want, 1); },
+  play(name, fade = 0.8) {
+    this.want = name;
+    if (!this.unlocked || name === this.curName) return;
+    const old = this.cur;
+    this.curName = name; this.cur = null;
+    if (old) this.fadeTo(old, 0, fade, true);
+    if (!name) return;
+    const a = this.get(name); a.currentTime = 0; a.volume = 0;
+    this.cur = a;
+    a.play().then(() => this.fadeTo(a, this.level(), fade)).catch(() => { this.unlocked = false; this.curName = ''; this.cur = null; armUnlock(); });
+  },
+  cache: {},
+  get(name) {   // 같은 곡은 한 번만 받아 둔다
+    let a = this.cache[name];
+    if (!a) { a = this.cache[name] = new Audio(`assets/bgm/${name}.${BGM_EXT}`); a.loop = true; a.preload = 'auto'; a.volume = 0; }
+    return a;
+  },
+  preload(name) { if (this.unlocked) this.get(name).load(); },
+  fadeTo(a, v, dur, stopAfter) {
+    clearInterval(a._fade);
+    const v0 = a.volume, t0 = performance.now();
+    const step = () => {
+      const k = Math.min(1, (performance.now() - t0) / (dur * 1000 || 1));
+      a.volume = Math.max(0, Math.min(1, v0 + (v - v0) * k));
+      if (k >= 1) { clearInterval(a._fade); if (stopAfter && a !== this.cur) a.pause(); }
+    };
+    a._fade = setInterval(step, 30); step();
+  },
+  refresh() { if (this.cur) this.fadeTo(this.cur, this.level(), 0.3); },
+  setOn(v) { bgmOn = v; try { localStorage.setItem('td_music', v ? '1' : '0'); } catch (e) {} this.refresh(); },
+  duck(v) { if (this.cur) this.fadeTo(this.cur, this.level() * v, 0.4); },   // 멈춤 화면에서 줄이기
+};
+const _setMuted = sfx.setMuted;
+sfx.setMuted = function (m) { _setMuted.call(this, m); music.refresh(); };
+function armUnlock() { for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => music.unlock(), { once: true, capture: true }); }
+armUnlock();

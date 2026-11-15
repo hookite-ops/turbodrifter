@@ -5,7 +5,7 @@ import { C, KMH, createKart, placeKart, stepKart, startBoost, pushApart, createB
 import { buildWorld, preloadLandmarks } from './world.js';
 import { loadKartAsset, makeKart, poseKart, makeTag, setKartShadow, CHARS, COLORS, KARTS } from './kartmodel.js';
 import { makeFx } from './fx.js';
-import { sfx } from './audio.js';
+import { sfx, music } from './audio.js';
 
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -98,6 +98,7 @@ window.addEventListener('keydown', e => {
   if (e.repeat) { if (race) e.preventDefault(); return; }
   sfx.init(); let used = true;
   switch (e.code) {
+    case 'KeyM': music.setOn(!music.on); toast(music.on ? '음악 켬' : '음악 끔'); break;
     case 'ArrowLeft': key.left = true; break;
     case 'ArrowRight': key.right = true; break;
     case 'ArrowUp': key.accel = true; tap.accel = true; break;
@@ -341,7 +342,7 @@ function startRace(cfg) {
   $('b-restart').classList.toggle('hidden', R.online);
   paused = false; screen = 'race';
   document.body.classList.add('racing'); splitOn = true; resize();
-  sfx.startRace();
+  sfx.startRace(); music.play(R.laps <= 1 ? T.def.theme + '_final' : T.def.theme, 0.6); music.preload(T.def.theme + '_final');
   $('h-tip').innerHTML = usingTouch ? '<span>방향 + 드리프트 → 게이지가 차면 부스터</span>'
     : '<span><kbd>←</kbd><kbd>→</kbd> 방향</span><span><kbd>↑</kbd> 가속</span><span><kbd>Shift</kbd> 드리프트</span><span><kbd>Ctrl</kbd> 부스터</span>';
   $('h-tip').classList.remove('hidden'); R.tipT = 11;
@@ -374,7 +375,7 @@ function finishRace(results) {
   $('res-title').textContent = mine ? (mine.time == null ? '리타이어…' : `${mine.rank}위로 완주!`) : '경기 결과';
   const wasOnline = R.online, cfg = R.cfg;
   setTimeout(() => {
-    endRace(); show('results');
+    endRace(); show('results'); music.play('menu', 1.2);
     $('b-res-ok').onclick = () => { sfx.click(); if (wasOnline && net.room) { show('room'); renderRoom(); } else show(wasOnline ? 'menu' : 'solo'); };
   }, mine && mine.time != null ? 1800 : 900);
 }
@@ -406,6 +407,8 @@ function togglePause() {
   if (paused && !race.online) race.pauseAt = performance.now();
   else if (!paused && !race.online && race.pauseAt) { const d = performance.now() - race.pauseAt; race.startPerf += d; if (race.endAt) race.endAt += d; race.pauseAt = 0; }
   if (paused) sfx.drive(0, false, 0);
+  $('b-music').textContent = music.on ? '음악 끄기' : '음악 켜기';
+  music.duck(paused ? 0.35 : 1);
 }
 
 // ----- HUD 헬퍼 -----
@@ -624,7 +627,7 @@ function handleEvents(R, me, ev) {
       showMsg('FINISH!', 'go', 3); sfx.finish(); setText('h-time', fmt(me.finishTime)); R.fx.confetti(k.x, k.y, k.z);
       if (R.online) net.send({ t: 'fin', time: me.finishTime });
       else if (!R.endAt) R.endAt = performance.now() + (R.karts.length > 1 ? 10000 : 1500);
-    } else if (ev.lap >= 1) { showMsg(ev.lap === R.laps - 1 ? 'FINAL LAP' : `LAP ${ev.lap + 1}`, '', 1.4); sfx.lap(); }
+    } else if (ev.lap >= 1) { showMsg(ev.lap === R.laps - 1 ? 'FINAL LAP' : `LAP ${ev.lap + 1}`, '', 1.4); sfx.lap(); if (ev.lap === R.laps - 1) music.play(R.T.def.theme + '_final', 0.5); }
   }
 }
 function botLap(R, e) {
@@ -706,8 +709,9 @@ function init() {
   $('b-resume').onclick = () => togglePause();
   $('b-restart').onclick = () => { const cfg = race.cfg; $('pause').classList.add('hidden'); startRace(cfg); };
   $('b-mute').onclick = () => { sfx.setMuted(!sfx.muted); $('b-mute').textContent = sfx.muted ? '소리 켜기' : '소리 끄기'; };
+  $('b-music').onclick = () => { music.setOn(!music.on); $('b-music').textContent = music.on ? '음악 끄기' : '음악 켜기'; if (paused) music.duck(0.35); };
   $('b-quit').onclick = () => {
-    const online = race && race.online; $('pause').classList.add('hidden'); endRace();
+    const online = race && race.online; $('pause').classList.add('hidden'); endRace(); music.play('menu', 1);
     if (online) { net.send({ t: 'leave' }); net.room = null; show('online'); net.send({ t: 'list' }); } else show('solo');
   };
   document.addEventListener('visibilitychange', () => { if (document.hidden && race && !race.online && !paused && !race.done) togglePause(); });
@@ -715,7 +719,7 @@ function init() {
 
 (async function boot() {
   await loadKartAsset(); preloadLandmarks();
-  init(); refreshMenuKart(); show('menu');
+  init(); refreshMenuKart(); show('menu'); music.play('menu');
   $('loading').classList.add('hidden');
   requestAnimationFrame(frame);
   window.__td = { get frames() { return frames; }, info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles }), get race() { return race; }, net, startRace, key, tap, profile }; // 테스트용
