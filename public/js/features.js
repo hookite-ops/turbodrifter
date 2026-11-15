@@ -121,6 +121,18 @@ export function buildFeatures(T, H) {
       if (st === 'icecave') disposables.push(mat);
       const m = shell(i0, cnt, P, mat, 8, 0.7);
       if (st === 'icecave') m.castShadow = false;
+      // 산·빙산 덮개: 터널이 언덕을 뚫고 지나가는 것처럼
+      if (st === 'mine' || st === 'icecave') {
+        const hump = [];
+        for (let k = 0; k <= 10; k++) { const t = Math.PI * k / 10; hump.push([Math.cos(t) * 1.9, Math.sin(t) * (st === 'mine' ? 15 : 12) + 0.2]); }
+        const hm = st === 'mine' ? lam({ color: th.cliff || th.mount, flatShading: true, side: THREE.DoubleSide }) : new THREE.MeshPhongMaterial({ color: '#e6f6ff', flatShading: true, shininess: 60, side: THREE.DoubleSide });
+        if (st === 'icecave') disposables.push(hm);
+        // 입구 쪽은 낮게 깎아 둥근 언덕 모양으로
+        const hg = shell(i0 + 2, cnt - 4, hump, hm, 10, 1.2);
+        const P2 = hg.geometry.attributes.position, nP = hump.length, rows = P2.count / nP;
+        for (let r = 0; r < rows; r++) { const e = Math.min(1, r / 6, (rows - 1 - r) / 6), i = (i0 + 2 + r) % N; for (let k = 0; k < nP; k++) { const v = r * nP + k; P2.setY(v, T.y[i] + 8.8 + (P2.getY(v) - T.y[i] - 0.2) * e * 0.9 + (R() - 0.5) * 0.8); } }
+        P2.needsUpdate = true; hg.geometry.computeVertexNormals();
+      }
       // 골조·조명
       const ribs = [], lamps = [];
       const step = st === 'neon' ? 5 : 6;

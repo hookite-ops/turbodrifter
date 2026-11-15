@@ -10,7 +10,7 @@ import { moverModels } from './movers.js';
 const LM_FILES = { windmill: 'assets/lm_windmill.glb', arch: 'assets/lm_arch.glb', castle: 'assets/lm_castle.glb', neon: 'assets/lm_neon.glb' };
 const LANDMARKS = {
   village: [{ m: 'windmill', at: 0.05, side: 1, off: 14, h: 22 }, { m: 'windmill', at: 0.36, side: -1, off: 16, h: 18 }, { m: 'windmill', at: 0.7, side: 1, off: 15, h: 20 }],
-  desert: [{ m: 'arch', over: 0.052, open: 22.5 }, { m: 'arch', at: 0.33, side: -1, off: 30, h: 34 }, { m: 'arch', at: 0.78, side: 1, off: 34, h: 40 }],
+  desert: [{ m: 'arch', over: 0.03, open: 22.5 }, { m: 'arch', at: 0.33, side: -1, off: 30, h: 34 }, { m: 'arch', at: 0.78, side: 1, off: 34, h: 40 }],
   ice: [{ m: 'castle', x: 118, z: 0, h: 60, ry: Math.PI / 2 }, { m: 'castle', x: -118, z: 0, h: 44, ry: -Math.PI / 2 }],
   city: [{ m: 'neon', at: 0.0, side: 1, off: 9, h: 42 }, { m: 'neon', at: 0.2, side: -1, off: 9, h: 38 }, { m: 'neon', at: 0.43, side: 1, off: 9, h: 46 }, { m: 'neon', at: 0.64, side: -1, off: 9, h: 40 }, { m: 'neon', at: 0.86, side: 1, off: 9, h: 44 }],
 };
@@ -48,8 +48,8 @@ const ARCH_GAP = 0.26;   // 아치 모델의 통로 폭(모델 단위)
 
 export const THEMES = {
   village: { top: '#2a86f5', hor: '#d9f1ff', fog: '#cfe9fb', ground: '#6fc04c', ground2: '#58a83c', shoulder: '#b99a62', road: '#565b66', line: '#ffffff', curbA: '#ff4d42', curbB: '#ffffff', wallA: '#ffffff', wallB: '#2f8fff', deck: '#8a8f99', sun: 1.35, amb: 1.0, mount: '#7db968', mount2: '#a8cfa0', amp: 15, sunDir: [0.45, 0.72, 0.35], sunCol: '#fff3c9' },
-  desert: { top: '#f58a3c', hor: '#ffe9bd', fog: '#ffe1ad', ground: '#e3b56b', ground2: '#cf9a52', shoulder: '#c98d52', road: '#66594f', line: '#fff3d0', curbA: '#ff7a1a', curbB: '#fff3d0', wallA: '#c9824a', wallB: '#f4d9a0', deck: '#a8733f', sun: 1.4, amb: 0.95, mount: '#c57e45', mount2: '#e2a56a', amp: 20, sunDir: [-0.5, 0.5, 0.5], sunCol: '#ffd9a0' },
-  ice: { top: '#3c7bd9', hor: '#e9f7ff', fog: '#dff2ff', ground: '#eaf6ff', ground2: '#c3e3f7', shoulder: '#b5d8ee', road: '#55667c', line: '#ffffff', curbA: '#38b6ff', curbB: '#ffffff', wallA: '#e8f8ff', wallB: '#8fd2ff', deck: '#7f95ad', sun: 1.25, amb: 1.1, mount: '#cfe6f7', mount2: '#ffffff', amp: 12, sunDir: [0.3, 0.6, -0.6], sunCol: '#ffffff' },
+  desert: { cliff: '#b8653a', top: '#f58a3c', hor: '#ffe9bd', fog: '#ffe1ad', ground: '#e3b56b', ground2: '#cf9a52', shoulder: '#c98d52', road: '#66594f', line: '#fff3d0', curbA: '#ff7a1a', curbB: '#fff3d0', wallA: '#c9824a', wallB: '#f4d9a0', deck: '#a8733f', sun: 1.4, amb: 0.95, mount: '#c57e45', mount2: '#e2a56a', amp: 20, sunDir: [-0.5, 0.5, 0.5], sunCol: '#ffd9a0' },
+  ice: { cliff: '#d9eefa', top: '#3c7bd9', hor: '#e9f7ff', fog: '#dff2ff', ground: '#eaf6ff', ground2: '#c3e3f7', shoulder: '#b5d8ee', road: '#55667c', line: '#ffffff', curbA: '#38b6ff', curbB: '#ffffff', wallA: '#e8f8ff', wallB: '#8fd2ff', deck: '#7f95ad', sun: 1.25, amb: 1.1, mount: '#cfe6f7', mount2: '#ffffff', amp: 12, sunDir: [0.3, 0.6, -0.6], sunCol: '#ffffff' },
   city: { top: '#090a22', hor: '#3d2a6e', fog: '#2a2152', ground: '#1c1d30', ground2: '#25263e', shoulder: '#30324d', road: '#3a3d4e', line: '#ffe66a', curbA: '#ff3fa4', curbB: '#2ef2ff', wallA: '#2ef2ff', wallB: '#151628', deck: '#2a2c40', sun: 0.6, amb: 1.25, mount: '#1a1840', mount2: '#2a2460', amp: 1.2, sunDir: [0.2, 0.8, 0.4], sunCol: '#b9a8ff', night: true },
 };
 const ADS = [
@@ -332,6 +332,8 @@ export function buildWorld(T, opt = {}) {
   }
   for (const l of featLm) lmPlan.push({ ...l, r: 0 });
   const zones = lmPlan.map(l => ({ x: l.x, z: l.z, r: l.r }));
+  // 터널 안·근처에는 구조물(배너·가로등·광고판)을 세우지 않는다
+  const inTun = new Uint8Array(N); for (let i = 0; i < N; i++) if (T.tunnel[i]) for (let o = -12; o <= 12; o++) inTun[(i + o + N) % N] = 1;
   const blocked = (x, z) => zones.some(l => Math.hypot(l.x - x, l.z - z) < l.r);
 
   // ----- 출발 게이트 + 관중석 -----
@@ -386,7 +388,7 @@ export function buildWorld(T, opt = {}) {
     const adGeo = {}, posts = [];
     let lastAd = -999, side = 1, adN = 0;
     for (let i = 20; i < N - 20; i += 4) {
-      if ((i - lastAd) * T.ds < 85 || Math.abs(T.curv[i]) > 0.006 || gap[i] > 3) continue;
+      if ((i - lastAd) * T.ds < 85 || Math.abs(T.curv[i]) > 0.006 || gap[i] > 3 || inTun[i] || T.cliff[i] > 0.2) continue;
       const off = T.hw[i] + 4.5, x = T.x[i] + T.nx[i] * side * off, z = T.z[i] + T.nz[i] * side * off;
       if (nearTrack(x, z, 3.5, i, 30) || blocked(x, z)) { side = -side; continue; }
       const yb = Math.max(T.y[i], heightAt(x, z)), ry = dirAt(i) + Math.PI + side * 0.5, W = 10, H = 4.4, cxr = Math.cos(ry), sxr = Math.sin(ry);
@@ -420,7 +422,7 @@ export function buildWorld(T, opt = {}) {
     const steps = Math.max(3, Math.round(T.length / 230));
     for (let q = 1; q < steps; q++) {
       const i = Math.floor(N * q / steps), hw = T.hw[i];
-      if (nearTrack(T.x[i], T.z[i], 6, i, 40)) continue;
+      if (nearTrack(T.x[i], T.z[i], 6, i, 40) || inTun[i] || T.ramp[i]) continue;
       const ry = dirAt(i);
       for (const s of [1, -1]) gant.push({ x: T.x[i] + T.nx[i] * s * (hw + 1.2), z: T.z[i] + T.nz[i] * s * (hw + 1.2), y: T.y[i] + 4, sx: 0.5, sy: 8, sz: 0.5, ry, c: th.night ? '#ff3fa4' : '#f6f3ea' });
       gant.push({ x: T.x[i], z: T.z[i], y: T.y[i] + 8.1, sx: 0.3, sy: 0.3, sz: hw * 2 + 3, ry: ry + Math.PI / 2, c: '#20232e' });
@@ -430,7 +432,7 @@ export function buildWorld(T, opt = {}) {
     // 벽 위 깃발 (코너)
     const poles = [], flags = [], fcols = th.night ? ['#2ef2ff', '#ff3fa4'] : ['#ff4d42', '#ffd21e', '#ffffff'];
     for (let i = 0; i < N; i += 5) {
-      if (Math.abs(T.curv[i]) < 0.012) continue;
+      if (Math.abs(T.curv[i]) < 0.012 || T.tunnel[i]) continue;
       const s = -Math.sign(T.curv[i]), x = T.x[i] + T.nx[i] * s * (T.hw[i] + 0.35), z = T.z[i] + T.nz[i] * s * (T.hw[i] + 0.35), ry = dirAt(i);
       poles.push({ x, z, y: T.y[i] + 2.9, sx: 0.09, sy: 1.6, sz: 0.09, c: '#e8e8ee' });
       flags.push({ x: x + Math.sin(ry) * 0.5, z: z + Math.cos(ry) * 0.5, y: T.y[i] + 3.35, sx: 0.04, sy: 0.6, sz: 1.0, ry, c: fcols[(i / 5) % fcols.length | 0] });
@@ -440,7 +442,7 @@ export function buildWorld(T, opt = {}) {
     const lp = [], bulbs = [], arm = [];
     for (let i = 7; i < N; i += 16) {
       const s = (i / 16 | 0) % 2 ? 1 : -1, x = T.x[i] + T.nx[i] * s * (T.hw[i] + 1.5), z = T.z[i] + T.nz[i] * s * (T.hw[i] + 1.5);
-      if (nearTrack(x, z, 0.8, i, 24) || gap[i] > 3) continue;
+      if (nearTrack(x, z, 0.8, i, 24) || gap[i] > 3 || inTun[i]) continue;
       lp.push({ x, z, y: T.y[i] + 3.6, sx: 0.16, sy: 7.2, sz: 0.16, c: th.night ? '#3a3d55' : '#6b7280' });
       arm.push({ x: x - T.nx[i] * s * 0.7, z: z - T.nz[i] * s * 0.7, y: T.y[i] + 7.1, sx: 1.6, sy: 0.12, sz: 0.12, ry: dirAt(i), c: th.night ? '#3a3d55' : '#6b7280' });
       bulbs.push({ x: x - T.nx[i] * s * 1.4, z: z - T.nz[i] * s * 1.4, y: T.y[i] + 6.95, s: 0.34 });
