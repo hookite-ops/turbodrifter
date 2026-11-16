@@ -13,6 +13,11 @@ const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a
 const fmt = ms => { if (ms == null) return '리타이어'; const m = Math.floor(ms / 60000), s = Math.floor(ms / 1000) % 60, c = Math.floor(ms / 10) % 100; return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`; };
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
 
+// ---------------- 기록·고스트 (혼자 달리기) ----------------
+const recKey = c => `${c.track}|${c.mode}|${c.laps}`;
+const records = store.get('td_rec', {});
+const fmtGap = ms => (ms < 0 ? '-' : '+') + (Math.abs(ms) / 1000).toFixed(2);
+
 // ---------------- 렌더러 ----------------
 const canvas = $('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -184,13 +189,13 @@ function makeSetup(el, cfg, onChange) {
   const tr = el.querySelector('.tracks');
   for (const d of TRACKS) {
     const b = document.createElement('button'); b.className = 'tcard'; b.dataset.id = d.id;
-    b.innerHTML = `<canvas width="200" height="160"></canvas><b>${d.name}</b><i>${d.level}</i>`;
+    b.innerHTML = `<canvas width="200" height="160"></canvas><b>${d.name}</b><i>${d.level}</i><small class="rec"></small>`;
     tr.appendChild(b); drawTrack(b.querySelector('canvas'), getTrack(d.id), 8, THEME_BG[d.theme]);
     b.onclick = () => { sfx.click(); cfg.track = d.id; cfg.laps = d.laps; onChange(cfg); paint(); };
   }
   el.querySelectorAll('.seg button').forEach(b => b.onclick = () => { sfx.click(); const k = b.parentElement.dataset.k; cfg[k] = k === 'laps' ? +b.dataset.v : b.dataset.v; onChange(cfg); paint(); });
   function paint() {
-    tr.querySelectorAll('.tcard').forEach(b => b.classList.toggle('on', b.dataset.id === cfg.track));
+    tr.querySelectorAll('.tcard').forEach(b => { b.classList.toggle('on', b.dataset.id === cfg.track); const r = records[recKey({ ...cfg, track: b.dataset.id, laps: b.dataset.id === cfg.track ? cfg.laps : (TRACKS.find(t => t.id === b.dataset.id) || {}).laps })]; b.querySelector('.rec').textContent = r ? '기록 ' + fmt(r.total) : ''; });
     el.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', String(cfg[b.parentElement.dataset.k]) === b.dataset.v));
     const d = TRACKS.find(t => t.id === cfg.track); el.querySelector('.desc').textContent = d ? d.desc : '';
   }
@@ -336,9 +341,21 @@ function startRace(cfg) {
   }
   R.me = R.karts.find(k => k.me);
   R.camA = R.me.k.h; R.camY = R.me.k.y;
+  // 기록·고스트
+  R.lapTimes = []; R.frames = []; R.recNext = 0; R.rec = null; R.ghost = null;
+  if (!R.online) {
+    R.rec = records[recKey(cfg)] || null;
+    const gf = (cfg.rivals | 0) === 0 && R.rec ? store.get('td_ghost_' + recKey(cfg), null) : null;
+    if (gf && gf.length > 8) {
+      const gm = makeKart(profile.char, profile.color, profile.kart | 0);
+      gm.group.traverse(o => { if (o.isMesh || o.isSprite) { const mats = Array.isArray(o.material) ? o.material : [o.material]; o.material = mats.map(m => { const c = m.clone(); c.transparent = true; c.opacity = Math.min(c.opacity ?? 1, 0.38); c.depthWrite = false; return c; }); if (o.material.length === 1) o.material = o.material[0]; o.castShadow = false; } });
+      gm.group.add(makeTag('고스트', '#9fe8ff')); scene.add(gm.group);
+      R.ghost = { f: gf, model: gm };
+    }
+  }
   R.autoBot = createBot(0.7);
   // HUD 준비
-  $('h-laps').textContent = R.laps; $('h-best').textContent = ''; $('h-of').textContent = '/' + R.karts.length;
+  $('h-laps').textContent = R.laps; $('h-best').textContent = R.rec ? '기록 ' + fmt(R.rec.total) : ''; $('h-of').textContent = '/' + R.karts.length;
   R.miniBase = document.createElement('canvas'); R.miniBase.width = R.miniBase.height = 220; R.miniMap = drawTrack(R.miniBase, T, 9);
   hideMsg(); setSub('');
   for (const s of SCREENS) $(s).classList.add('hidden'); $('ver').classList.add('hidden');
@@ -362,6 +379,7 @@ function endRace() {
   sfx.stopRace();
   R.fx.dispose(); scene.remove(R.world.group); R.world.dispose();
   for (const k of R.karts) scene.remove(k.model.group);
+  if (R.ghost) scene.remove(R.ghost.model.group);
   $('hud').classList.add('hidden'); $('touch').classList.add('hidden'); $('boostfx').style.opacity = 0;
   renderer.shadowMap.enabled = false;
   document.body.classList.remove('racing'); splitOn = false; resize();
@@ -376,7 +394,7 @@ function finishRace(results) {
     d.querySelector('.nm').textContent = r.name; list.appendChild(d);
   }
   const mine = results.find(r => r.me);
-  $('res-title').textContent = mine ? (mine.time == null ? '리타이어…' : `${mine.rank}위로 완주!`) : '경기 결과';
+  $('res-title').textContent = mine ? (mine.time == null ? '리타이어…' : R.newRec ? (R.karts.length > 1 ? `${mine.rank}위 · 신기록!` : `신기록! ${fmt(mine.time)}`) : `${mine.rank}위로 완주!`) : '경기 결과';
   const wasOnline = R.online, cfg = R.cfg;
   setTimeout(() => {
     endRace(); show('results'); music.play('menu', 1.2);
@@ -479,6 +497,21 @@ function updateRace(dt, now) {
     if (!first) tap.accel = tap.boost = tap.drift = false;
   } else if (R.phase !== 'countdown') tap.accel = tap.boost = tap.drift = false;
   if (R.resetCd > 0) R.resetCd -= dt;
+
+  // ----- 기록용 위치 저장 · 고스트 재생 -----
+  if (!R.online && R.phase === 'race' && simulate) {
+    if (!me.finished) while (t >= R.recNext) { R.frames.push(Math.round(k.x * 10), Math.round(k.z * 10), Math.round(k.y * 10), Math.round(k.h * 100)); R.recNext += 0.1; }
+    if (R.ghost) {
+      const f = R.ghost.f, n = f.length / 4, u = t * 10, i = Math.min(n - 2, Math.floor(u)), a = Math.min(1, u - i), m = R.ghost.model;
+      if (u >= n - 1) m.group.visible = false;
+      else {
+        const o = i * 4, q = o + 4, x = (f[o] + (f[q] - f[o]) * a) / 10, z = (f[o + 1] + (f[q + 1] - f[o + 1]) * a) / 10, y = (f[o + 2] + (f[q + 2] - f[o + 2]) * a) / 10;
+        let dh = (f[q + 3] - f[o + 3]) / 100; while (dh > Math.PI) dh -= 2 * Math.PI; while (dh < -Math.PI) dh += 2 * Math.PI;
+        const sp = Math.hypot(f[q] - f[o], f[q + 1] - f[o + 1]);   // 0.1초 동안 이동(10배 단위) = m/s
+        poseKart(m, { x, y, z, h: f[o + 3] / 100 + dh * a, speed: sp, steer: 0, slip: 0, drifting: false, boost: 0, slope: 0 }, dt, now / 1000);
+      }
+    }
+  }
 
   // ----- 원격 카트 보간 -----
   for (const e of R.karts) {
@@ -623,13 +656,24 @@ function handleEvents(R, me, ev) {
   if (ev.bump) { sfx.hit(ev.bump.soft ? ev.bump.v * 0.35 : ev.bump.v * 0.8); R.shake = Math.max(R.shake || 0, ev.bump.soft ? 0.1 : 0.2); if (ev.bump.soft) R.fx.burst(k.x, k.y + 0.8, k.z, 14, 0.95, 0.8, 0.35); else R.fx.burst(k.x, k.y + 0.5, k.z, 10); }
   if (ev.lap !== undefined && !me.finished) {
     const tms = R.time * 1000;
-    if (ev.lap >= 1) { const lt = tms - me.lapStart; if (!me.bestLap || lt < me.bestLap) me.bestLap = lt; $('h-best').textContent = 'BEST ' + fmt(me.bestLap); }
+    if (ev.lap >= 1) {
+      const lt = tms - me.lapStart; if (!me.bestLap || lt < me.bestLap) me.bestLap = lt; $('h-best').textContent = 'BEST ' + fmt(me.bestLap);
+      R.lapTimes.push(Math.round(lt));
+      // 내 기록과 비교 (누적 시간 차이)
+      if (R.rec && R.rec.laps && R.rec.laps.length >= ev.lap) { const ref = R.rec.laps.slice(0, ev.lap).reduce((a, b) => a + b, 0), d = tms - ref; setTimeout(() => race === R && flashSub(fmtGap(d), d < 0 ? 'inst' : 'warn'), 50); }
+    }
     me.lapStart = tms;
     if (ev.lap >= R.laps) {
       me.finished = true; me.finishTime = Math.round(tms); k.finished = true;
       const rank = R.karts.filter(e => e.finished).length;
       showMsg('FINISH!', 'go', 3); sfx.finish(); setText('h-time', fmt(me.finishTime)); R.fx.confetti(k.x, k.y, k.z);
       if (R.online) net.send({ t: 'fin', time: me.finishTime });
+      else if (!R.rec || me.finishTime < R.rec.total) {   // 신기록: 기록과 고스트 저장
+        R.newRec = true;
+        records[recKey(R.cfg)] = { total: me.finishTime, laps: R.lapTimes, bestLap: Math.round(me.bestLap || 0), at: Date.now() };
+        store.set('td_rec', records); store.set('td_ghost_' + recKey(R.cfg), R.frames);
+        setTimeout(() => race === R && flashSub(R.rec ? `신기록! ${fmtGap(me.finishTime - R.rec.total)}` : '첫 기록!', 'end'), 1300);
+      }
       else if (!R.endAt) R.endAt = performance.now() + (R.karts.length > 1 ? 10000 : 1500);
     } else if (ev.lap >= 1) { showMsg(ev.lap === R.laps - 1 ? 'FINAL LAP' : `LAP ${ev.lap + 1}`, '', 1.4); sfx.lap(); if (ev.lap === R.laps - 1) music.play(R.T.def.theme + '_final', 0.5); }
   }
