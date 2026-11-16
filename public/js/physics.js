@@ -381,8 +381,8 @@ export function botInput(b, k, T, dt, time = 0) {
   let cAhead = 0;
   for (let j = 0; j < 14; j++) cAhead += P.curv[id(kti + 4 + j * 2)];
   cAhead /= 14;
-  const apex = clamp(cAhead * 120, -1, 1) * P.hw[li] * (0.12 + b.skill * 0.2);   // 코너 안쪽으로 살짝 붙기
-  let tl = clamp(lane * 0.4 + apex, -(P.hw[li] - 2.6), Math.max(0, P.hw[li] - 2.6));
+  const apex = clamp(cAhead * 120, -1, 1) * P.hw[li] * (0.05 + b.skill * 0.12);   // 코너 안쪽으로 살짝 붙기
+  const mg = 3.0; let tl = clamp(lane * 0.4 + apex, -(P.hw[li] - mg), Math.max(0, P.hw[li] - mg));
   if (k.sc) tl = clamp(tl, -(P.hw[li] - 1.8), P.hw[li] - 1.8);
   // 앞의 장애물 피하기 (실력이 낮을수록 늦게 본다)
   if (P.obs.length || P.movers.length) {
@@ -432,13 +432,13 @@ export function botInput(b, k, T, dt, time = 0) {
     const thr = gripYaw(k.speed) * (0.5 + (1 - b.skill) * 0.3);
     if (need > thr && Math.abs(bend) > 0.45 && Math.abs(err) > 0.12 && k.speed > 14 && Math.sign(err) === Math.sign(cMax)) {
       inp.driftTap = true; inp.drift = true; inp.steer = Math.sign(err); b.phase = 1;
-      b.holdT = clamp((need - driftTurn(C.driftKick) * 1.1) / C.turnSlip / C.driftDeepen, 0, 0.4);   // 급할수록 Shift를 길게
+      b.holdT = clamp((need * 1.25 - driftTurn(C.driftKick) * 1.1) / C.turnSlip / C.driftDeepen, 0, 0.6);   // 급할수록 Shift를 길게
     } else if (Math.abs(err) > 0.5 && k.speed > 20) inp.accel = false;
   } else {
     const d = k.driftDir, remain = err * d;
     if (b.holdT > 0) { b.holdT -= dt; inp.drift = true; }
-    if (remain > 0.2) inp.steer = d;                    // 아직 많이 남음: 방향키 유지
-    else if (remain > 0.06) inp.steer = 0;              // 거의 다 옴: 손 떼고 크게 돌기
+    if (remain > 0.3) inp.steer = d;                    // 아직 많이 남음: 방향키 유지
+    else if (remain > 0.12) inp.steer = 0;              // 거의 다 옴: 손 떼고 크게 돌기
     else { inp.steer = -d; inp.drift = false; b.holdT = 0; }   // 반대키로 끊기
   }
   if (b.wasDrift && !k.drifting && k.instWin > 0) b.instDelay = 0.06 + (1 - b.skill) * 0.45;
@@ -447,7 +447,7 @@ export function botInput(b, k, T, dt, time = 0) {
   if (k.boosts > 0 && k.boostT <= 0 && !k.drifting && Math.abs(bend) < 0.3 && Math.abs(err) < 0.2) {
     b.boostWait += dt; if (b.boostWait > 0.15 + (1 - b.skill) * 0.8) { inp.boostTap = true; b.boostWait = 0; }
   }
-  if (k.speed > C.maxSpeed * (0.9 + b.skill * 0.1) && k.boostT <= 0 && k.instT <= 0) inp.accel = false;   // 실력 낮은 봇은 살짝 발을 뗌
+  if (k.speed > C.maxSpeed * (0.9 + b.skill * 0.1) && k.boostT <= 0 && k.instT <= 0 && !k.drifting && k.draftB <= 0 && b.skill < 0.9) inp.accel = false;   // 실력 낮은 봇은 살짝 발을 뗌
   if (Math.abs(k.speed) < 2.5) b.stuckT += dt; else b.stuckT = 0;                                          // 벽에 박히면 후진
   if (b.stuckT > 1.2) { b.revT = 0.9; b.stuckT = 0; }
   if (b.revT > 0) { b.revT -= dt; inp.accel = false; inp.brake = true; inp.steer = -inp.steer; }

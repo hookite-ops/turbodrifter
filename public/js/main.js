@@ -14,7 +14,7 @@ const fmt = ms => { if (ms == null) return '리타이어'; const m = Math.floor(
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
 
 // ---------------- 기록·고스트 (혼자 달리기) ----------------
-const recKey = c => `${c.track}|${c.mode}|${c.laps}`;
+const recKey = c => `${c.track}|${c.mode}|${c.laps}|m2`;   // m2: 맵을 다시 만든 뒤의 기록
 const records = store.get('td_rec', {});
 const fmtGap = ms => (ms < 0 ? '-' : '+') + (Math.abs(ms) / 1000).toFixed(2);
 
@@ -605,7 +605,7 @@ function updateRace(dt, now) {
     orbit = e * 2.75; extraD = e * 1.4;
   }
   const yaw = R.camA + orbit, front = clamp(1 - Math.abs(orbit) / 1.3, 0, 1);
-  const dist = 6.1 + sp01 * 1.0 + R.boostAmt * 1.1 + extraD, ch = 2.75 + sp01 * 0.2 + extraH;
+  const dist = 5.3 + sp01 * 0.9 + R.boostAmt * 1.1 + extraD, ch = 2.45 + sp01 * 0.2 + extraH;
   let shx = 0, shy = 0;
   if (R.shake > 0) { R.shake -= dt; const a = Math.max(0, R.shake) * 1.7; shx = Math.sin(now * 0.085) * a; shy = Math.cos(now * 0.12) * a * 0.7; }
   if (R.boostAmt > 0.05) { shx += Math.sin(now * 0.07) * 0.022 * R.boostAmt; shy += Math.sin(now * 0.113) * 0.016 * R.boostAmt; }

@@ -10,7 +10,7 @@ import { moverModels } from './movers.js';
 const LM_FILES = { windmill: 'assets/lm_windmill.glb', arch: 'assets/lm_arch.glb', castle: 'assets/lm_castle.glb', neon: 'assets/lm_neon.glb' };
 const LANDMARKS = {
   village: [{ m: 'windmill', at: 0.05, side: 1, off: 14, h: 22 }, { m: 'windmill', at: 0.36, side: -1, off: 16, h: 18 }, { m: 'windmill', at: 0.7, side: 1, off: 15, h: 20 }],
-  desert: [{ m: 'arch', over: 0.03, open: 22.5 }, { m: 'arch', at: 0.33, side: -1, off: 30, h: 34 }, { m: 'arch', at: 0.78, side: 1, off: 34, h: 40 }],
+  desert: [{ m: 'arch', over: 0.035, open: 19 }, { m: 'arch', at: 0.3, side: 1, off: 30, h: 34 }, { m: 'arch', at: 0.62, side: 1, off: 30, h: 38 }],
   ice: [{ m: 'castle', x: 118, z: 0, h: 60, ry: Math.PI / 2 }, { m: 'castle', x: -118, z: 0, h: 44, ry: -Math.PI / 2 }],
   city: [{ m: 'neon', at: 0.0, side: 1, off: 9, h: 42 }, { m: 'neon', at: 0.2, side: -1, off: 9, h: 38 }, { m: 'neon', at: 0.43, side: 1, off: 9, h: 46 }, { m: 'neon', at: 0.64, side: -1, off: 9, h: 40 }, { m: 'neon', at: 0.86, side: 1, off: 9, h: 44 }],
 };
@@ -356,9 +356,11 @@ export function buildWorld(T, opt = {}) {
     } else if (d.at !== undefined) {
       const i = Math.floor(d.at * N) % N;
       const place = sd => [T.x[i] + T.nx[i] * sd * (T.hw[i] + d.off), T.z[i] + T.nz[i] * sd * (T.hw[i] + d.off)];
-      let [x, z] = place(d.side);
-      if (nearTrack(x, z, 7, i, 24)) [x, z] = place(-d.side);
-      if (nearTrack(x, z, 5, i, 24)) continue;
+      // 모델 크기만큼 도로에서 떨어진 자리를 찾는다 (바깥쪽 → 반대쪽, 점점 멀리)
+      const clr = d.m === 'neon' ? 5 : d.m === 'arch' ? d.h * 0.62 : 7;
+      let x, z, ok = false;
+      for (const extra of [0, 14, 28, 44]) { for (const sd of [d.side, -d.side]) { const off0 = d.off; d.off = off0 + extra; [x, z] = place(sd); d.off = off0; if (!nearTrack(x, z, clr)) { ok = true; break; } } if (ok) break; }
+      if (!ok) continue;
       lmPlan.push({ m: d.m, h: d.h, x, z, y: heightAt(x, z) - 0.4, ry: Math.atan2(T.x[i] - x, T.z[i] - z), r: d.h * (d.m === 'neon' ? 0.22 : 0.6) });
     } else lmPlan.push({ m: d.m, h: d.h, x: d.x, z: d.z, y: heightAt(d.x, d.z) - 1.5, ry: d.ry || 0, r: d.h * 0.62 });
   }
@@ -455,7 +457,7 @@ export function buildWorld(T, opt = {}) {
     const steps = Math.max(3, Math.round(T.length / 230));
     for (let q = 1; q < steps; q++) {
       const i = Math.floor(N * q / steps), hw = T.hw[i];
-      if (nearTrack(T.x[i], T.z[i], 6, i, 40) || inTun[i] || T.ramp[i]) continue;
+      if (nearTrack(T.x[i], T.z[i], 6, i, 40) || inTun[i] || T.ramp[i] || T.hw[i] > 10.5) continue;
       const ry = dirAt(i);
       for (const s of [1, -1]) gant.push({ x: T.x[i] + T.nx[i] * s * (hw + 1.2), z: T.z[i] + T.nz[i] * s * (hw + 1.2), y: T.y[i] + 4, sx: 0.5, sy: 8, sz: 0.5, ry, c: th.night ? '#ff3fa4' : '#f6f3ea' });
       gant.push({ x: T.x[i], z: T.z[i], y: T.y[i] + 8.1, sx: 0.3, sy: 0.3, sz: hw * 2 + 3, ry: ry + Math.PI / 2, c: '#20232e' });

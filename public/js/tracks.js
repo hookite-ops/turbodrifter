@@ -3,71 +3,63 @@
 
 // 꼭짓점 = [x, z, 코너 반지름, 높이]. 직선 + 원호(코너)로 이어 붙인다 — 직선(부스터) → 코너(드리프트) 리듬.
 const sc = (pts, k) => pts.map(p => [p[0] * k, p[1] * k, (p[2] || 0) * k, p[3] || 0, p[4]]);
+// 설계 좌표는 '위에서 본 그림' 기준(왼쪽이 −x)으로 적고 vw()로 게임 좌표로 바꾼다
+const vw = pts => pts.map(p => [-p[0], p[1], p[2], p[3], p[4]]);
+// 도로 폭 기준: 반폭 7m(카트 6대 폭). 직각 코너 반지름 15~18m, 헤어핀 14m → 드리프트 없이는 못 돈다.
 export const TRACKS = [
   {
-    id: 'village', name: '새싹 마을 순환로', theme: 'village', level: '★☆☆', laps: 3,
-    desc: '나무 다리를 지나 개울을 점프로 넘고, 풍차 섬을 왼쪽·오른쪽 중 골라 지나는 입문 코스.',
-    hw: 10,
-    // [x, z, 코너 반지름, 높이, 반폭]
-    pts: [
-      [0, -130, 34, 0, 11], [0, 150, 36, 0, 10.5], [65, 187.5, 0, 2, 7.6], [130, 225, 34, 4, 9.5],
-      [235, 150, 32, 8, 9.5], [195, 45, 28, 1.5, 10], [255, -40, 28, 0, 10], [235, -102.5, 0, 0, 16.5],
-      [215, -165, 34, 0, 10.5], [85, -195, 36, 0, 10],
-    ],
-    pads: [0.02, { at: { e: 7, t: 0.42 }, lat: -8.5 }, { at: { e: 8, t: 0.86 }, lat: 0 }],
+    id: 'village', name: '새싹 마을 한 바퀴', theme: 'village', level: '★☆☆', laps: 3,
+    desc: '직각 코너에서 드리프트를 익히는 마을길. 나무 다리, 풍차 로터리, 개울 점프.',
+    hw: 7,
+    pts: vw([
+      [0, -105, 18, 0, 8.5], [0, 130, 18, 0, 8.5], [-130, 130, 16, 2], [-130, 50, 15, 4], [-240, 50, 16, 7],
+      [-240, -35, 0, 7, 12], [-240, -120, 30, 6], [-180, -180, 30, 3], [-48, -180, 15, 0], [-48, -105, 15, 0],
+    ]),
+    pads: [{ at: { e: 0, t: 0.56 }, lat: 0 }, { at: { e: 7, t: 0.0 }, lat: 0 }],
     zones: [
-      { from: { e: 1, t: 0.42 }, to: { e: 2, t: 0.58 }, kind: 'tunnel', style: 'barn' },
-      { from: { e: 4, t: 0.44 }, to: { e: 4, t: 0.82 }, kind: 'water', style: 'stream' },
+      { from: { e: 1, t: 0.2 }, to: { e: 1, t: 0.85 }, kind: 'tunnel', style: 'barn' },
+      { from: { e: 7, t: 0.3 }, to: { e: 7, t: 0.47 }, kind: 'water', style: 'stream' },
     ],
-    jumps: [{ at: { e: 4, t: 0.25 }, len: 11, rise: 2.0 }],
+    jumps: [{ at: { e: 7, t: 0.1 }, len: 10, rise: 2.0 }],
     obs: [
-      { at: { c: 7, t: 0 }, lat: 0, r: 4.6, kind: 'island' },
-      // 짚더미 시케인 (좌우로 번갈아 막는다)
-      { at: { e: 8, t: 0.22 }, lat: -7.2, r: 1.9, kind: 'hay', soft: true }, { at: { e: 8, t: 0.22 }, lat: -3.6, r: 1.9, kind: 'hay', soft: true },
-      { at: { e: 8, t: 0.44 }, lat: 7.2, r: 1.9, kind: 'hay', soft: true }, { at: { e: 8, t: 0.44 }, lat: 3.6, r: 1.9, kind: 'hay', soft: true },
-      { at: { e: 8, t: 0.66 }, lat: -7.2, r: 1.9, kind: 'hay', soft: true }, { at: { e: 8, t: 0.66 }, lat: -3.6, r: 1.9, kind: 'hay', soft: true },
+      { at: { c: 5, t: 0 }, lat: 0, r: 4.2, kind: 'island' },
+      { at: { e: 3, t: 0.28 }, lat: -4.7, r: 1.5, kind: 'hay', soft: true }, { at: { e: 3, t: 0.28 }, lat: -1.9, r: 1.5, kind: 'hay', soft: true },
+      { at: { e: 3, t: 0.72 }, lat: 4.7, r: 1.5, kind: 'hay', soft: true }, { at: { e: 3, t: 0.72 }, lat: 1.9, r: 1.5, kind: 'hay', soft: true },
     ],
   },
   {
-    id: 'canyon', name: '모래바람 협곡', theme: 'desert', level: '★★☆', laps: 3,
-    desc: '절벽 사이 바늘길에서 회전초를 피하고, 광산 터널로 고개를 넘어 내리막 큰 점프.',
-    hw: 9,
-    pts: [
-      [0, -25, 0, 0, 9.5], [0, 140, 26, 0, 9.5], [75, 215, 24, 2], [170, 190, 22, 6], [165, 105, 20, 9], [85, 70, 20, 9],
-      [105, -15, 22, 5], [215, 5, 24, 3], [270, 95, 22, 7], [355, 70, 22, 14, 9.5], [370, -55, 26, 18, 10],
-      [290, -125, 24, 11, 10], [185, -115, 22, 3], [125, -215, 24, 0], [35, -235, 26, 0], [0, -170, 28, 0, 8.5],
-      [0, -130, 0, 0, 6.4], [0, -75, 0, 0, 6.4],
-    ],
-    pads: [0.02, { at: { e: 8, t: 0.45 }, lat: 0 }, { at: { e: 12, t: 0.5 }, lat: 3 }],
+    id: 'canyon', name: '모래바람 협곡 다운힐', theme: 'desert', level: '★★☆', laps: 3,
+    desc: '광산 터널로 정상에 올라 크게 점프한 뒤, 헤어핀이 연달아 나오는 내리막을 내려온다.',
+    hw: 7,
+    pts: vw([
+      [0, -160, 20, 0, 8], [0, 60, 20, 3, 8], [120, 60, 18, 8], [120, 200, 18, 16], [-150, 200, 14, 11],
+      [-150, 172, 14, 10.5], [-40, 172, 14, 8.5], [-40, 144, 14, 8], [-150, 144, 14, 6], [-150, 116, 14, 5.5],
+      [-40, 116, 15, 3.5], [-40, -20, 0, 1, 5.4], [-40, -160, 20, 0],
+    ]),
+    pads: [{ at: { e: 0, t: 0.56 }, lat: 0 }, { at: { e: 3, t: 0.3 }, lat: 2.5 }, { at: { e: 3, t: 0.5 }, lat: -2.5 }],
     zones: [
-      { from: { e: 9, t: 0.5 }, to: { e: 10, t: 0.3 }, kind: 'tunnel', style: 'mine' },
-      { from: { e: 9, t: 0.35 }, to: { e: 10, t: 0.45 }, kind: 'cliff', amt: 0.9 },
-      { from: { e: 12, t: 0.1 }, to: { e: 17, t: 0.9 }, kind: 'cliff' },
-      { from: { e: 3, t: 0.2 }, to: { e: 5, t: 0.6 }, kind: 'cliff', amt: 0.6 },
+      { from: { e: 2, t: 0.15 }, to: { e: 2, t: 0.85 }, kind: 'tunnel', style: 'mine' },
+      { from: { e: 2, t: 0.0 }, to: { e: 2, t: 1.0 }, kind: 'cliff', amt: 0.9 },
+      { from: { e: 4, t: 0 }, to: { e: 9, t: 1 }, kind: 'cliff', amt: 0.22 },
+      { from: { e: 10, t: 0.12 }, to: { e: 11, t: 0.9 }, kind: 'cliff' },
     ],
-    jumps: [{ at: { e: 11, t: 0.18 }, len: 12, rise: 2.4 }],
+    jumps: [{ at: { e: 3, t: 0.07 }, len: 12, rise: 2.4 }],
     obs: [
-      { at: { e: 6, t: 0.55 }, lat: 4.5, r: 1.7, kind: 'rock' },
-      { at: { e: 13, t: 0.45 }, lat: -4, r: 1.8, kind: 'rock' }, { at: { e: 13, t: 0.5 }, lat: -6.8, r: 1.3, kind: 'rock' },
+      { at: { e: 5, t: 0.5 }, lat: 3.4, r: 1.4, kind: 'rock' }, { at: { e: 9, t: 0.5 }, lat: -3.4, r: 1.4, kind: 'rock' },
     ],
-    // 지름길: 헤어핀 안쪽 바위 협곡을 S자로 가로지른다 (좁고 바위가 있어 실수하면 손해)
-    shortcuts: [{ from: { e: 2, t: 0.33 }, to: { e: 5, t: 0.4 }, hw: 4.3, cliff: 0.8,
-      pts: [[114, 186, 12], [142, 160, 14], [118, 126, 14], [101, 100, 12]],
-      obs: [{ at: 0.36, lat: 1.8, r: 1.1, kind: 'rock' }, { at: 0.62, lat: -1.9, r: 1.1, kind: 'rock' }] }],
     movers: [
-      { kind: 'cross', model: 'tumbleweed', at: { e: 16, t: 0.15 }, a: 5.2, period: 3.4, phase: 0, r: 1.1 },
-      { kind: 'cross', model: 'tumbleweed', at: { e: 16, t: 0.55 }, a: 5.2, period: 2.7, phase: 0.4, r: 1.1 },
-      { kind: 'cross', model: 'tumbleweed', at: { e: 16, t: 0.95 }, a: 5.2, period: 3.9, phase: 0.75, r: 1.1 },
-      { kind: 'cross', model: 'tumbleweed', at: { e: 1, t: 0.4 }, a: 7.5, period: 4.6, phase: 0.2, r: 1.1 },
+      { kind: 'cross', model: 'tumbleweed', at: { e: 10, t: 0.75 }, a: 3.6, period: 3.2, phase: 0, r: 1.0 },
+      { kind: 'cross', model: 'tumbleweed', at: { e: 11, t: 0.3 }, a: 3.6, period: 2.6, phase: 0.4, r: 1.0 },
+      { kind: 'cross', model: 'tumbleweed', at: { e: 11, t: 0.75 }, a: 4.4, period: 3.8, phase: 0.75, r: 1.0 },
     ],
   },
   {
     id: 'lake', name: '얼음 호수 8자 다리', theme: 'ice', level: '★★☆', laps: 3,
     desc: '다리 꼭대기에서 점프하고, 얼어붙은 호수 위 빙판을 길게 미끄러진다. 펭귄 조심!',
-    hw: 9.5,
+    hw: 7.5,
     pts: sc([
-      [260, 60, 36, 0], [260, -60, 36, 0], [150, -150, 36, 2], [0, 0, 0, 9.5], [-150, 150, 36, 2],
-      [-260, 60, 36, 0, 10.5], [-260, -60, 36, 0, 10.5], [-150, -150, 36, 0, 11], [0, 0, 0, 0, 13], [150, 150, 36, 0, 11],
+      [260, 60, 30, 0], [260, -60, 30, 0], [150, -150, 30, 2], [0, 0, 0, 9.5], [-150, 150, 30, 2],
+      [-260, 60, 30, 0, 8], [-260, -60, 30, 0, 8], [-150, -150, 30, 0, 9], [0, 0, 0, 0, 10.5], [150, 150, 30, 0, 9],
     ], 0.72),
     pads: [{ at: { e: 2, t: 0.35 }, lat: 0 }, { at: { e: 7, t: 0.08 }, lat: 0 }],
     zones: [
@@ -78,43 +70,42 @@ export const TRACKS = [
     jumps: [{ at: { e: 2, t: 0.8 }, len: 10, rise: 1.6 }],
     obs: [],
     // 지름길: 서쪽 고리 안쪽 얼어붙은 연못을 가로지른다 (빙판이라 미끄럽다)
-    shortcuts: [{ from: { e: 4, t: 0.55 }, to: { e: 6, t: 0.45 }, hw: 4.4, surf: 'ice', kind: 'ice',
+    shortcuts: [{ from: { e: 4, t: 0.55 }, to: { e: 6, t: 0.45 }, hw: 4.2, surf: 'ice', kind: 'ice',
       pts: [[-158, 40, 14], [-161, -40, 14]],
-      obs: [{ at: 0.5, lat: 1.5, r: 1.2, kind: 'rock' }] }],
+      obs: [{ at: 0.5, lat: 1.5, r: 1.1, kind: 'rock' }] }],
     movers: [
-      { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.35 }, a: 10, period: 5.2, phase: 0, r: 1.0 },
-      { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.62 }, a: 10, period: 4.4, phase: 0.5, r: 1.0 },
-      { kind: 'cross', model: 'penguin', at: { e: 4, t: 0.5 }, a: 7, period: 3.6, phase: 0.25, r: 1.0 },
+      { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.35 }, a: 7.5, period: 5.2, phase: 0, r: 1.0 },
+      { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.62 }, a: 7.5, period: 4.4, phase: 0.5, r: 1.0 },
+      { kind: 'cross', model: 'penguin', at: { e: 4, t: 0.5 }, a: 5, period: 3.6, phase: 0.25, r: 1.0 },
     ],
   },
   {
     id: 'neon', name: '네온 시티 하이웨이', theme: 'city', level: '★★★', laps: 2,
-    desc: '차들이 달리는 하이웨이를 비집고, 고가도로 점프로 빌딩 사이를 건너는 밤의 도심.',
-    hw: 9.5,
+    desc: '차들이 달리는 하이웨이를 비집고, 직각 코너가 연달아 나오는 도심 블록을 꿰뚫는다.',
+    hw: 7.2,
     pts: sc([
-      [0, -220, 27, 0, 12.5], [0, 220, 27, 0, 12.5], [120, 220, 25, 0], [120, 120, 24, 0], [240, 120, 24, 0], [240, 240, 25, 0], [400, 240, 28, 0],
-      [400, 60, 26, 0], [300, 60, 24, 2], [300, -40, 24, 5], [420, -40, 25, 10], [420, -220, 28, 10, 10], [260, -220, 26, 4],
-      [260, -120, 24, 0, 8], [140, -120, 24, 0, 8], [140, -220, 25, 0, 9],
+      [0, -220, 22, 0, 10.5], [0, 220, 22, 0, 10.5], [120, 220, 21, 0], [120, 120, 20, 0], [240, 120, 20, 0], [240, 240, 21, 0], [400, 240, 23, 0],
+      [400, 60, 22, 0], [300, 60, 20, 2], [300, -40, 20, 5], [420, -40, 21, 10], [420, -220, 23, 10, 8], [260, -220, 22, 4],
+      [260, -120, 20, 0, 6.4], [140, -120, 20, 0, 6.4], [140, -220, 21, 0, 7],
     ], 0.82),
-    pads: [{ at: { e: 4, t: 0.5 }, lat: 0 }, { at: { e: 11, t: 0.3 }, lat: 3.5 }, { at: { e: 11, t: 0.55 }, lat: -3.5 }],
+    pads: [{ at: { e: 4, t: 0.5 }, lat: 0 }, { at: { e: 11, t: 0.3 }, lat: 2.6 }, { at: { e: 11, t: 0.55 }, lat: -2.6 }],
     zones: [
       { from: { e: 6, t: 0.12 }, to: { e: 6, t: 0.88 }, kind: 'tunnel', style: 'neon' },
     ],
     jumps: [{ at: { e: 10, t: 0.42 }, len: 11, rise: 2.2 }],
     obs: [
-      { at: { e: 14, t: 0.3 }, lat: 4.5, r: 0.9, kind: 'cone', soft: true }, { at: { e: 14, t: 0.3 }, lat: 2.6, r: 0.9, kind: 'cone', soft: true },
-      { at: { e: 14, t: 0.6 }, lat: -4.5, r: 0.9, kind: 'cone', soft: true }, { at: { e: 14, t: 0.6 }, lat: -2.6, r: 0.9, kind: 'cone', soft: true },
-      { at: { e: 2, t: 0.5 }, lat: 0, r: 0.9, kind: 'cone', soft: true },
+      { at: { e: 14, t: 0.3 }, lat: 3.6, r: 0.9, kind: 'cone', soft: true }, { at: { e: 14, t: 0.3 }, lat: 1.8, r: 0.9, kind: 'cone', soft: true },
+      { at: { e: 14, t: 0.6 }, lat: -3.6, r: 0.9, kind: 'cone', soft: true }, { at: { e: 14, t: 0.6 }, lat: -1.8, r: 0.9, kind: 'cone', soft: true },
     ],
     // 지름길: 직각 코너를 꺾지 않고 곧장 뒷골목으로 — 지그재그라 드리프트를 잘 끊어야 이득
-    shortcuts: [{ from: { e: 11, t: 0.86 }, to: { e: 15, t: 0.2 }, hw: 4.3, kind: 'alley',
+    shortcuts: [{ from: { e: 11, t: 0.86 }, to: { e: 15, t: 0.2 }, hw: 4.2, kind: 'alley',
       pts: [[186, -178, 8], [168, -197, 8], [149, -167, 8], [130, -192, 8]],
-      obs: [{ at: 0.5, lat: 2.2, r: 0.9, kind: 'cone', soft: true }],
+      obs: [{ at: 0.5, lat: 2.1, r: 0.9, kind: 'cone', soft: true }],
       pads: [{ at: 0.84, lat: 0 }] }],
     movers: [
-      { kind: 'traffic', model: 'car', from: { e: 0, t: 0.64 }, to: { e: 0, t: 0.97 }, lanes: [5.5, -5.5], count: 2, speed: 17, r: 1.9 },
-      { kind: 'traffic', model: 'car', from: { e: 0, t: 0.04 }, to: { e: 0, t: 0.38 }, lanes: [5.5, -5.5], count: 2, speed: 17, r: 1.9 },
-      { kind: 'traffic', model: 'car', from: { e: 6, t: 0.05 }, to: { e: 6, t: 0.95 }, lanes: [-4.5], count: 2, speed: 14, r: 1.9 },
+      { kind: 'traffic', model: 'car', from: { e: 0, t: 0.64 }, to: { e: 0, t: 0.97 }, lanes: [4.6, -4.6], count: 2, speed: 17, r: 1.9 },
+      { kind: 'traffic', model: 'car', from: { e: 0, t: 0.04 }, to: { e: 0, t: 0.38 }, lanes: [4.6, -4.6], count: 2, speed: 17, r: 1.9 },
+      { kind: 'traffic', model: 'car', from: { e: 6, t: 0.05 }, to: { e: 6, t: 0.95 }, lanes: [-3.4], count: 2, speed: 14, r: 1.9 },
     ],
   },
 ];
