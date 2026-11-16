@@ -298,7 +298,7 @@ const BOT_NAMES = ['번개', '솜사탕', '호두', '단풍', '초코', '모카'
 
 function addKart(R, o) {
   const model = makeKart(o.char, o.color, o.kart | 0);
-  const e = { id: o.id, name: o.name, me: !!o.me, bot: o.bot || null, remote: !!o.remote, k: createKart(), model, fx: {}, finished: false, finishTime: 0, char: o.char, color: o.color, net: null, vis: null, lapStart: 0, bestLap: 0, inp: null };
+  const e = { kartIdx: o.kart | 0, id: o.id, name: o.name, me: !!o.me, bot: o.bot || null, remote: !!o.remote, k: createKart(), model, fx: {}, finished: false, finishTime: 0, char: o.char, color: o.color, net: null, vis: null, lapStart: 0, bestLap: 0, inp: null };
   placeKart(e.k, R.T, gridSlot(R.T, o.slot));
   setKartShadow(model, HQ);
   if (!e.me) { e.tag = makeTag(o.name, e.bot ? '#d5dcff' : '#ffffff'); model.group.add(e.tag); }
@@ -398,8 +398,9 @@ function finishRace(results) {
   const mine = results.find(r => r.me);
   $('res-title').textContent = mine ? (mine.time == null ? '리타이어…' : R.newRec ? (R.karts.length > 1 ? `${mine.rank}위 · 신기록!` : `신기록! ${fmt(mine.time)}`) : `${mine.rank}위로 완주!`) : '경기 결과';
   const wasOnline = R.online, cfg = R.cfg;
+  const top = results.filter(r => r.time != null).slice(0, 3).map(r => { const e = R.karts.find(x => x.id === r.id); return e ? { char: e.char, color: e.color, kart: e.kartIdx, name: r.name, rank: r.rank, me: r.me } : null; }).filter(Boolean);
   setTimeout(() => {
-    endRace(); show('results'); music.play('menu', 1.2);
+    endRace(); buildPodium(top); show('results'); music.play('menu', 1.2);
     $('b-res-ok').onclick = () => { sfx.click(); if (wasOnline && net.room) { show('room'); renderRoom(); } else show(wasOnline ? 'menu' : 'solo'); };
   }, mine && mine.time != null ? 1800 : 900);
 }
@@ -738,7 +739,57 @@ function frame(now) {
   if (race) { updateRace(dt, now); if (race) renderer.render(scene, camera); else renderMenu(dt, now); }
   else renderMenu(dt, now);
 }
+// ---------------- 시상대 (결과 화면 뒤 3D) ----------------
+let podium = null;
+function buildPodium(top) {
+  if (podium) { menuScene.remove(podium.group); podium.dispose(); podium = null; }
+  if (!top.length) return;
+  const group = new THREE.Group(), disp = [], karts = [];
+  const box = new THREE.BoxGeometry(1, 1, 1); disp.push(box);
+  const spots = { 1: [0, 1.5], 2: [-2.7, 1.0], 3: [2.7, 0.65] }, cols = { 1: '#ffd21e', 2: '#cfd6e6', 3: '#e09a5a' };
+  for (const r of top) {
+    const [x, h] = spots[r.rank] || [0, 0.4];
+    const cv = document.createElement('canvas'); cv.width = 128; cv.height = 128; const c = cv.getContext('2d');
+    c.fillStyle = cols[r.rank]; c.fillRect(0, 0, 128, 128); c.fillStyle = '#14161f'; c.font = '900 88px "Black Han Sans", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(r.rank), 64, 70);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; disp.push(tex);
+    const side = new THREE.MeshLambertMaterial({ color: cols[r.rank] }), front = new THREE.MeshLambertMaterial({ map: tex }); disp.push(side, front);
+    const b = new THREE.Mesh(box, [side, side, side, side, front, side]); b.scale.set(2.5, h, 2.4); b.position.set(x, h / 2 - 0.36, 0); group.add(b);
+    const km = makeKart(r.char, r.color, r.kart); km.group.position.set(x, h - 0.36, 0); km.group.rotation.y = -x * 0.08;
+    km.group.add(makeTag(r.name + (r.me ? ' (나)' : ''), r.me ? '#ffd21e' : '#ffffff'));
+    group.add(km.group); karts.push({ km, r, base: h - 0.36 });
+  }
+  // 꽃가루
+  const cg = new THREE.PlaneGeometry(0.12, 0.2); disp.push(cg);
+  const cm = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }); disp.push(cm);
+  const NC = 160, conf = new THREE.InstancedMesh(cg, cm, NC), C = new THREE.Color(), parts = [];
+  const pal = ['#ff4d42', '#ffd21e', '#29b6ff', '#ffffff', '#35c15a', '#ff6fb1'];
+  for (let i = 0; i < NC; i++) { conf.setColorAt(i, C.set(pal[i % pal.length])); parts.push({ x: (Math.random() - 0.5) * 12, y: Math.random() * 9, z: (Math.random() - 0.5) * 5, v: 0.8 + Math.random() * 1.4, r: Math.random() * 6, w: 2 + Math.random() * 4 }); }
+  group.add(conf);
+  menuScene.add(group);
+  const o = new THREE.Object3D();
+  podium = {
+    group, karts,
+    update(t, dt) {
+      for (const { km, r, base } of karts) { km.group.position.y = base + (r.rank === 1 ? Math.abs(Math.sin(t * 3.2)) * 0.25 : Math.abs(Math.sin(t * 2.4 + r.rank)) * 0.08); for (const w of km.wheels || []) w.rotation.x = t * 3; }
+      for (let i = 0; i < NC; i++) { const p = parts[i]; p.y -= p.v * dt; p.r += p.w * dt; if (p.y < -0.4) { p.y = 8 + Math.random() * 2; p.x = (Math.random() - 0.5) * 12; } o.position.set(p.x + Math.sin(p.r) * 0.3, p.y, p.z); o.rotation.set(p.r, p.r * 0.7, 0); o.updateMatrix(); conf.setMatrixAt(i, o.matrix); }
+      conf.instanceMatrix.needsUpdate = true;
+    },
+    dispose() { for (const d of disp) d.dispose(); },
+  };
+}
+
 function renderMenu(dt, now) {
+  const onPodium = screen === 'results' && podium;
+  if (menuKart) menuKart.group.visible = !onPodium;
+  if (podium) podium.group.visible = !!onPodium;
+  if (onPodium) {
+    podium.update(now / 1000, Math.min(dt, 0.05));
+    const portrait = camera.aspect < 1;
+    camera.fov = portrait ? 60 : 40; camera.updateProjectionMatrix();
+    if (portrait) { camera.position.set(0, 5, 17); camera.lookAt(0, -2.4, 0); }
+    else { camera.position.set(2.4, 4.2, 15.5); camera.lookAt(5.4, 1.0, 0); }   // 시상대를 화면 왼쪽에
+    renderer.render(menuScene, camera); return;
+  }
   if (menuKart) { menuKart.group.rotation.y = now / 1000 * 0.6; for (const w of menuKart.wheels) w.rotation.x = now / 300; }
   const portrait = camera.aspect < 1;
   camera.fov = portrait ? 52 : 38; camera.updateProjectionMatrix();

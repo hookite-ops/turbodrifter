@@ -247,6 +247,10 @@ body:not(.kb) .h-tip{top:48%}
 
 /* ---------- 결과 ---------- */
 .res-list{display:flex;flex-direction:column;gap:6px}
+#results.scrim{background:linear-gradient(90deg,rgba(20,22,31,0) 0%,rgba(20,22,31,.15) 38%,rgba(20,22,31,.9) 58%)}
+#results .panel{width:min(560px,50%);margin-left:auto}
+#results .head{justify-content:flex-end}
+@media (orientation: portrait){#results.scrim{background:linear-gradient(180deg,rgba(20,22,31,0) 0%,rgba(20,22,31,.2) 36%,rgba(20,22,31,.92) 50%)}#results .panel{width:auto;margin-left:0;margin-top:auto;max-height:52%}}
 .res{display:flex;align-items:center;gap:14px;padding:8px 18px;border-radius:6px;background:var(--panel2);font-size:clamp(16px,2.6vh,22px);font-weight:700;transform:skewX(var(--sk));margin:0 10px}
 .res.me{background:var(--yellow);color:var(--ink)}
 .res .rk{width:2.4em;font-family:var(--disp);font-size:1.25em} .res .nm{flex:1} .res .tm{font-variant-numeric:tabular-nums;font-family:var(--disp)}
@@ -292,7 +296,7 @@ body:not(.kb) .h-tip{top:48%}
     </aside>
   </div>
 </section>
-<div class="ver hidden" id="ver">v2.1</div>
+<div class="ver hidden" id="ver">v2.2</div>
 
 <!-- 온라인 로비 -->
 <section id="online" class="screen scrim hidden">
