@@ -13,14 +13,23 @@ export const C = {
   followGrip: 12,
   // 드리프트: Shift를 짧게 누르면 차체가 driftKick만큼 꺾이고, 방향키를 누르고 있는 동안 그 각을 유지하며 돈다.
   // Shift를 길게 누르면 각이 깊어져 더 급하게 돌지만 속도를 많이 잃는다. 반대 방향키로 끊는다(커팅).
-  driftKick: 0.42, driftKickRate: 6.5, driftDeepen: 1.5, maxSlip: 1.05,
-  slipHold: 0.22, slipFree: 1.3, slipCut: 5.5,
-  turnBase: 1.25, turnSlip: 1.55,
-  driftDrag: 0.7, driftThrust: 0.4,
+  driftKick: 0.30, driftKickRate: 6.5, driftDeepen: 2.0, maxSlip: 1.1,
+  slipHold: 0.3, slipFree: 1.4, slipCut: 5.5,
+  turnBase: 0.55, turnSlip: 2.6,
+  driftBase: 0.09, driftDrag: 0.8, driftThrust: 0.35,   // 드리프트 감속: 얕아도 조금, 깊을수록 많이 (U턴에서 약 120km/h까지)
   driftMinSpeed: 10,
-  gaugeRate: 0.95,
+  gaugeRate: 1.3,
   boostTime: 3.0, instTime: 0.62, instWindow: 0.5, startBoostTime: 1.6,
   radius: 1.15, gravity: 26,
+  // --- 원작 규칙 ---
+  dblKick: 0.3, dblGap: 0.16,       // 더블 드리프트: 드리프트 중 Shift를 한 번 더 (너무 빠르면 무시)
+  elastTime: 0.7, elastGauge: 1.35, // 탄력: 드리프트 직후 같은 방향으로 다시 치면 게이지가 더 찬다 (숏풀)
+  cutTime: 0.28, cutGauge: 0.035,   // 커팅: 드리프트 중 Shift+반대 방향키 → 감속 없이 빠르게 자세 복귀 + 게이지 조금
+  instMin: 0.1,                     // 순간 부스터: 이만큼(게이지 10%)도 못 채운 얕은 드리프트는 발동 안 됨
+  spinDelay: 0.12, spinRate: 2.6, spinMax: 2.75,   // 스핀턴: 드리프트 중 ↑를 떼면 차가 돌아간다
+  hitGauge: 0.14,                   // 벽에 세게 박으면 게이지를 잃는다 (무한 부스터전 제외)
+  draftCharge: 1.5, draftTime: 1.2, draftSpeed: 5, draftCool: 2.5,   // 드래프트: 앞 카트 뒤를 1.5초 따라가면 순간 가속
+  catchUp: 0.03,                    // 뒤처진 카트 보정: 1등과 멀수록 최고 속도 최대 +3%
 };
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
@@ -40,7 +49,7 @@ export function createKart() {
     drifting: false, driftDir: 0, driftT: 0, slip: 0, kick: 0, armed: false, pendDir: 0,
     gauge: 0, boosts: 0, boostT: 0, instT: 0, instWin: 0,
     ti: 0, lat: 0, s: 0, lap: -1, prog: 0, wrongT: 0,
-    hitT: 0, padT: 0, airT: 0, air: false, vy: 0, surf: 0, bumpT: 0, sc: 0, pi: 0, ps: 0, prevSc: 0, draftT: 0, draftOn: false,
+    hitT: 0, padT: 0, airT: 0, air: false, vy: 0, surf: 0, bumpT: 0, sc: 0, pi: 0, ps: 0, prevSc: 0, draftT: 0, draftB: 0, draftCd: 0, catch: 0, tapT: 0, dblT: 0, cutT: 0, elast: 0, elastT: 0, gMul: 1, driftG: 0, offT: 0,
     finished: false, finishTime: 0,
     ev: {},   // 이번 프레임에 일어난 일 (효과음·이펙트용)
     _loc: {},
@@ -78,8 +87,9 @@ export function stepKart(k, inp, dt, T, rule) {
   // --- 부스터 사용 / 순간 부스터 ---
   if (k.instWin > 0) {
     k.instWin -= dt;
-    if (inp.accelTap || inp.boostTap) {
+    if (inp.accelTap || (inp.boostTap && k.boosts === 0)) {   // 원작: ↑를 뗐다가 다시 누른다
       k.instT = C.instTime; k.instWin = 0; ev.inst = true; inp = { ...inp, boostTap: false };
+      if (inf) addGauge(k, 0.12, ev, inf);
     }
   }
   if (inp.boostTap && k.boosts > 0 && k.boostT <= 0.15) {
@@ -92,16 +102,29 @@ export function stepKart(k, inp, dt, T, rule) {
   if (!inp.drift) k.armed = false;
   if (inp.driftTap) k.armed = true;
   const canDrift = k.speed > C.driftMinSpeed;
+  if (k.elastT > 0) k.elastT -= dt;
+  if (k.dblT > 0) k.dblT -= dt;
+  if (k.cutT > 0) k.cutT -= dt;
   if (k.drifting && inp.driftTap && dirKey) {
-    if (dirKey === k.driftDir) k.kick = Math.min(C.maxSlip - Math.abs(k.slip), k.kick + 0.28);   // 연타: 각을 한 번 더 넣기
-    else k.pendDir = dirKey;                                                                      // 반대로 바로 이어 치기
+    if (dirKey === k.driftDir) {
+      if (k.driftT - k.tapT > C.dblGap) {                     // 더블 드리프트: 각과 탄력을 한 번 더
+        k.kick = Math.min(C.maxSlip - Math.abs(k.slip), k.kick + C.dblKick); k.dblT = 0.45; k.tapT = k.driftT; ev.dbl = true;
+      }
+    } else if (k.driftT > 0.15) {                             // 커팅: 반대로 짧게 쳐서 자세 바로잡기
+      k.cutT = C.cutTime; k.pendDir = dirKey; ev.cut = true;
+      addGauge(k, C.cutGauge * clamp(k.speed / C.maxSpeed, 0, 1.3) * (inf ? 2.2 : 1), ev, inf);
+    }
     k.armed = false;
   }
-  if (!k.drifting && canDrift && !air && dirKey && (k.armed || k.pendDir === dirKey)) {
-    k.drifting = true; k.driftDir = dirKey; k.driftT = 0; k.armed = false; k.pendDir = 0; ev.driftStart = true;
-    k.kick = Math.max(0, C.driftKick - Math.max(0, k.slip * dirKey));
+  // 새 드리프트: Shift를 누른 순간, 또는 커팅 뒤에도 Shift+반대 방향을 계속 누르고 있으면 반대로 이어진다
+  if (!k.drifting && canDrift && !air && dirKey && (k.armed || (k.pendDir === dirKey && inp.drift))) {
+    k.drifting = true; k.driftDir = dirKey; k.driftT = 0; k.tapT = 0; k.armed = false; k.pendDir = 0; k.driftG = 0; k.cutT = 0; ev.driftStart = true;
+    const el = k.elastT > 0 && k.elast === dirKey;            // 탄력이 남아 있으면 더 잘 꺾이고 게이지도 더 찬다
+    k.gMul = el ? C.elastGauge : 1;
+    k.kick = Math.max(0, C.driftKick + (el ? 0.08 : 0) - Math.max(0, k.slip * dirKey));
   }
   if (!k.drifting) k.pendDir = 0;
+  k.offT = inp.accel || boosting || inst ? 0 : k.offT + dt;
 
   // --- 방향 ---
   const sf = clamp(Math.abs(k.speed) / 6, 0, 1);
@@ -113,13 +136,17 @@ export function stepKart(k, inp, dt, T, rule) {
     let mag = Math.max(0, k.slip * d);
     const into = dirKey === d, counter = dirKey === -d;
     if (k.kick > 0) { const a = Math.min(k.kick, C.driftKickRate * dt); mag += a; k.kick -= a; }
+    const spin = k.offT > C.spinDelay && !air;                                         // 스핀턴: ↑를 떼면 차가 계속 돌아간다
+    const cap = Math.max(C.maxSlip, mag);
     if (air) { /* 공중: 각 유지 */ }
-    else if (counter) { mag -= C.slipCut * dt; k.kick = 0; }                           // 커팅
+    else if (spin) mag += C.spinRate * dt;
+    else if (k.cutT > 0) { mag -= C.slipCut * 1.7 * dt; k.kick = 0; }                  // 커팅 (Shift+반대키)
+    else if (counter) { mag -= C.slipCut * dt; k.kick = 0; }                           // 반대 방향키만: 끊기
     else if (inp.drift) mag += C.driftDeepen * dt;                                     // Shift를 누르는 동안 더 깊게
     else if (into) mag -= C.slipHold * (ice ? 0.35 : 1) * dt;                          // 방향키 유지: 끌기 (빙판은 더 오래)
     else mag -= C.slipFree * (ice ? 0.45 : 1) * dt;                                    // 손을 떼면 서서히 복귀
-    mag = clamp(mag, 0, C.maxSlip);
-    const turn = driftTurn(mag) * clamp(mag / 0.2, 0, 1) * (counter ? 0.35 : into ? 1.1 : 0.42) * (air ? 0.3 : 1);
+    mag = clamp(mag, 0, spin ? C.spinMax : cap);
+    const turn = driftTurn(Math.min(mag, C.maxSlip)) * clamp(mag / 0.2, 0, 1) * (counter || k.cutT > 0 ? 0.35 : into ? 1.1 : 0.42) * (air ? 0.3 : 1) * (k.dblT > 0 ? 1.3 : 1) * (mag > 1.6 ? 0.3 : 1);
     k.mv += d * turn * sf * dt;
     k.slip = d * mag;
     k.h = k.mv + k.slip;
@@ -139,7 +166,9 @@ export function stepKart(k, inp, dt, T, rule) {
   if (boosting) { vmax = C.boostSpeed; acc = C.boostAccel; }
   else if (inst) { vmax = C.instSpeed; acc = C.instAccel; }
   if (k.padT > 0) { k.padT -= dt; vmax = Math.max(vmax, C.boostSpeed); acc = Math.max(acc, C.boostAccel); }
-  if (k.draftOn && !water) { vmax += 3.2; acc += 6; }          // 슬립스트림: 앞 카트 바로 뒤에서 바람을 덜 받는다
+  if (k.draftCd > 0) k.draftCd -= dt;
+  if (k.draftB > 0) { k.draftB -= dt; if (!water) { vmax += C.draftSpeed; acc = Math.max(acc, 30); } }   // 드래프트: 순간 가속
+  vmax *= 1 + C.catchUp * k.catch;
   if (water) { vmax *= 0.6; acc *= 0.7; }                     // 물웅덩이: 느려진다
   if (k.bumpT > 0) k.bumpT -= dt;
   const slopeAcc = -(k._loc.slope || 0) * 9 * Math.cos(wrap(k.mv - Math.atan2(k._loc.tx || 0, k._loc.tz || 1)));
@@ -151,7 +180,7 @@ export function stepKart(k, inp, dt, T, rule) {
     else k.speed = Math.max(-C.reverse, k.speed - 12 * dt);
   } else if (throttle) {
     if (k.speed < 0) k.speed += C.brake * dt;
-    else if (k.speed < vmax) k.speed += acc * Math.cos(slip) * (k.drifting ? C.driftThrust : 1) * (1 - 0.55 * (k.speed / vmax) ** 2) * dt;
+    else if (k.speed < vmax) { const cs = Math.cos(slip); k.speed += acc * cs * (k.drifting && cs > 0 ? C.driftThrust : 1) * (1 - 0.55 * (k.speed / vmax) ** 2) * dt; }
     else k.speed -= Math.min(k.speed - vmax, (water ? 30 : 9) * dt); // 부스터가 끝나면 서서히 감속
   } else {
     const d = C.coast * dt;
@@ -159,19 +188,26 @@ export function stepKart(k, inp, dt, T, rule) {
   }
   if (k.speed > 0 && !air) k.speed += slopeAcc * dt * 0.5;
   if (water && k.speed > vmax) k.speed -= (k.speed - vmax) * 2.5 * dt;
-  if (k.drifting) k.speed -= k.speed * C.driftDrag * Math.sin(slip) ** 2 * dt;
+  if (k.drifting && k.cutT <= 0) k.speed -= k.speed * (C.driftBase + C.driftDrag * Math.sin(Math.min(Math.abs(slip), Math.PI / 2)) ** 2 * (Math.abs(slip) > 1.3 ? 1.8 : 1)) * (boosting ? 0.6 : 1) * dt;
+  if (k.speed < 0 && Math.abs(slip) > Math.PI / 2 && k.drifting) k.speed = 0;
 
   // --- 드리프트 게이지 ---
   if (k.drifting) {
     // 오래 끌수록 충전 효율이 떨어진다 (짧게 끊어 치는 편이 유리)
-    const g = C.gaugeRate * (ice ? 1.3 : 1) * Math.abs(slip) * clamp(k.speed / C.maxSpeed, 0, 1.2) / (1 + Math.max(0, k.driftT - 0.6) * 0.9) * (inf ? 3.2 : 1);
-    addGauge(k, g * dt, ev, inf);
+    const g = C.gaugeRate * (ice ? 1.3 : 1) * Math.min(Math.abs(slip), C.maxSlip) * clamp(k.speed / C.maxSpeed, 0, 1.2) / (1 + Math.max(0, k.driftT - 0.6) * 0.9) * k.gMul;
+    k.driftG += g * dt;
+    addGauge(k, g * dt * (inf ? 2.2 : 1), ev, inf);
     if ((Math.abs(slip) < 0.04 && k.kick <= 0 && k.driftT > 0.08) || k.speed < 6) {
-      k.drifting = false; ev.driftEnd = true; k.slip = 0; k.h = k.mv;
-      if (k.speed >= 6 && k.driftT > 0.22) { k.instWin = C.instWindow; ev.instReady = true; }
+      k.drifting = false; ev.driftEnd = true;
+      if (Math.abs(slip) > Math.PI / 2) { k.mv = k.h; k.speed = Math.max(k.speed * 0.2, 1.5); ev.spin = true; }   // 스핀턴 완료: 차가 보는 쪽으로 다시 출발
+      else k.h = k.mv;
+      k.slip = 0;
+      if (k.speed >= 6 && k.driftG >= C.instMin) { k.instWin = C.instWindow; ev.instReady = true; }
+      k.elast = k.driftDir; k.elastT = C.elastTime;
       k.driftT = 0;
     }
-  } else if (inf && k.speed > 8) addGauge(k, 0.1 * dt, ev, inf);
+  }
+  if (inf && k.speed > 8) addGauge(k, 0.2 * dt, ev, inf);    // 무한 부스터전: 부스터 중에도 저절로 찬다
 
   // --- 이동 ---
   k.x += Math.sin(k.mv) * k.speed * dt;
@@ -216,6 +252,7 @@ export function stepKart(k, inp, dt, T, rule) {
       else k.speed = ns * (1 - loss);
       if (vn > 5) {
         ev.hit = vn; k.hitT = 0.25;
+        if (!inf && k.gauge > 0) { const lost = Math.min(k.gauge, C.hitGauge + vn * 0.008); k.gauge -= lost; ev.gaugeLost = lost; }
         if (k.drifting) { k.drifting = false; k.driftT = 0; k.kick = 0; k.slip = 0; ev.driftEnd = true; k.h = k.mv; }
         else k.h += wrap(k.mv - k.h) * 0.5;
       } else {
@@ -299,7 +336,16 @@ function addGauge(k, g, ev, inf) {
 }
 
 // 출발 부스터: GO 직전·직후에 가속(또는 부스터 버튼)을 누르면 발동
-export function startBoost(k) { k.boostT = C.startBoostTime; k.ev.boost = true; k.ev.start = true; }
+export function startBoost(k, inf) { k.boostT = C.startBoostTime; k.ev.boost = true; k.ev.start = true; if (inf) addGauge(k, 0.3, k.ev, true); }
+// 드래프트 판정은 카트끼리의 위치가 필요해 경기 코드에서 부른다: behind = 앞 카트 바로 뒤에 붙어 있는가
+export function stepDraft(k, behind, dt, inf) {
+  if (k.draftB > 0 || k.draftCd > 0) { k.draftT = 0; return false; }
+  k.draftT = behind ? k.draftT + dt : Math.max(0, k.draftT - dt * 2.5);
+  if (k.draftT < C.draftCharge) return false;
+  k.draftT = 0; k.draftB = C.draftTime; k.draftCd = C.draftCool + C.draftTime;
+  if (inf) addGauge(k, 0.2, k.ev, true);
+  return true;
+}
 
 // 카트끼리 밀어내기 (내 카트만 움직임)
 export function pushApart(k, ox, oz, oy, ovx, ovz) {

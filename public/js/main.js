@@ -1,7 +1,7 @@
 // 터보 드리프터 — 게임 본체 (메뉴, 레이스, HUD, 입력, 온라인)
 import * as THREE from '../lib/three.bundle.js';
 import { TRACKS, buildTrack, gridSlot, pointAt } from './tracks.js';
-import { C, KMH, createKart, placeKart, stepKart, startBoost, pushApart, createBot, botInput } from './physics.js';
+import { C, KMH, createKart, placeKart, stepKart, startBoost, stepDraft, pushApart, createBot, botInput } from './physics.js';
 import { buildWorld, preloadLandmarks } from './world.js';
 import { loadKartAsset, makeKart, poseKart, makeTag, setKartShadow, CHARS, COLORS, KARTS } from './kartmodel.js';
 import { makeFx } from './fx.js';
@@ -465,8 +465,8 @@ function updateRace(dt, now) {
     if (t >= 0) {
       R.phase = 'race'; showMsg('GO!', 'go', 1.0); sfx.beep(true); R.world.setLights && R.world.setLights('go'); R.lightsOffAt = t + 4;
       for (const e of R.karts) e.lapStart = 0;
-      if (now - R.startTap < 160) { startBoost(k); R.startUsed = true; boostFx(R, k); setTimeout(() => race === R && flashSub('출발 부스터!', 'inst'), 0); }
-      for (const e of R.karts) if (e.bot && Math.random() < e.bot.skill * 0.7) startBoost(e.k);
+      if (now - R.startTap < 160) { startBoost(k, R.rule.infinite); R.startUsed = true; boostFx(R, k); setTimeout(() => race === R && flashSub('출발 부스터!', 'inst'), 0); }
+      for (const e of R.karts) if (e.bot && Math.random() < e.bot.skill * 0.7) startBoost(e.k, R.rule.infinite);
     }
     tap.accel = tap.boost = tap.drift = false;
   }
@@ -483,7 +483,7 @@ function updateRace(dt, now) {
       else {
         const steer = usingTouch ? -touchSteer.dir : (key.left ? 1 : 0) - (key.right ? 1 : 0);
         inp = { steer, accel: usingTouch ? !key.brake : key.accel, brake: key.brake, drift: key.drift, driftTap: first && tap.drift, boostTap: first && tap.boost, accelTap: first && tap.accel };
-        if (first && !R.startUsed && t < 0.36 && (tap.accel || tap.boost)) { startBoost(k); R.startUsed = true; inp.boostTap = false; boostFx(R, k); flashSub('출발 부스터!', 'inst'); }
+        if (first && !R.startUsed && t < 0.36 && (tap.accel || tap.boost)) { startBoost(k, R.rule.infinite); R.startUsed = true; inp.boostTap = false; boostFx(R, k); flashSub('출발 부스터!', 'inst'); }
       }
       stepKart(k, inp, H, T, R.rule);
       handleEvents(R, me, k.ev);
@@ -491,7 +491,9 @@ function updateRace(dt, now) {
         if (e.bot && !e.finished) { stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule); if (e.k.ev.lap !== undefined) botLap(R, e); }
         else if (e.bot) stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule);
       }
-      // 슬립스트림: 앞 카트 3~22m 뒤, 좌우 2.4m 안에서 0.7초 버티면 발동
+      // 뒤처진 카트 보정: 1등과 30m 넘게 벌어지면 조금씩 빨라진다 (200m에서 최대)
+      if (first && R.karts.length > 1) { let lead = -1e9; for (const e of R.karts) if (!e.finished) lead = Math.max(lead, e.k.prog); for (const e of R.karts) e.k.catch = clamp((lead - e.k.prog - 30) / 170, 0, 1); }
+      // 드래프트: 앞 카트 3~22m 뒤, 좌우 2.4m 안에서 1.5초 따라가면 순간 가속
       for (const a of R.karts) {
         if (a.remote) continue;
         const q = a.k; let behind = false;
@@ -505,9 +507,7 @@ function updateRace(dt, now) {
             if (al > 3 && al < 22 && Math.abs(lt) < 2.4) { behind = true; break; }
           }
         }
-        q.draftT = behind ? q.draftT + H : Math.max(0, q.draftT - H * 2.5);
-        const was = q.draftOn; q.draftOn = q.draftT > 0.7;
-        if (a.me && q.draftOn && !was && first) { sfx.noise(0.5, 2600, 900, 0.22); flashSub('슬립스트림!', 'inst'); }
+        if (stepDraft(q, behind, H, R.rule.infinite) && a.me) { sfx.noise(0.6, 2800, 700, 0.3); flashSub('드래프트!', 'inst'); boostFx(R, q); }
       }
       // 카트끼리 밀기
       for (const a of R.karts) {
@@ -583,7 +583,7 @@ function updateRace(dt, now) {
     }
   }
   // 슬립스트림 바람
-  if (simulate && k.draftT > 0.15) { R.draftAcc = (R.draftAcc || 0) + dt; if (R.draftAcc > 0.05) { R.draftAcc = 0; R.fx.streakAt && R.fx.streakAt(k, k.draftOn); } }
+  if (simulate && (k.draftT > 0.15 || k.draftB > 0)) { R.draftAcc = (R.draftAcc || 0) + dt; if (R.draftAcc > 0.05) { R.draftAcc = 0; R.fx.streakAt && R.fx.streakAt(k, k.draftB > 0); } }
   // 물 튀김
   if (simulate) for (const e of R.karts) { const q = e.k; if (!e.remote && q.surf === 2 && Math.abs(q.speed) > 5 && Math.random() < dt * 30) R.fx.splash(q.x, q.y, q.z, q.mv, q.speed); }
   R.fx.update(simulate ? dt : 0, viewH, camera.fov);
@@ -694,6 +694,10 @@ function handleEvents(R, me, ev) {
   if (ev.charged) { sfx.charged(); R.fx.burst(k.x, k.y + 0.6, k.z, 16, 0.45, 0.8, 1); }
   if (ev.pad) boostFx(R, k);
   if (ev.driftStart) sfx.driftStart();
+  if (ev.dbl) sfx.driftStart();
+  if (ev.cut) sfx.tone(660, 0.05, 'square', 0.05);
+  if (ev.spin) { sfx.noise(0.3, 1200, 300, 0.25); flashSub('스핀턴!', 'inst'); }
+  if (ev.gaugeLost > 0.03) { const el = document.querySelector('.h-gauge'); el.classList.remove('lost'); void el.offsetWidth; el.classList.add('lost'); }
   if (ev.hit) { sfx.hit(ev.hit); R.shake = clamp(0.14 + ev.hit * 0.012, 0.16, 0.34); R.fx.burst(k.x, k.y, k.z, 12); R.fx.dust(k.x, k.y, k.z, 6); }
   if (ev.scrape && Math.random() < 0.2) R.fx.dust(k.x, k.y, k.z, 1);
   if (ev.jump) { sfx.noise(0.35, 1800, 500, 0.25); R.fx.dust(k.x, k.y, k.z, 4); }
