@@ -131,6 +131,10 @@ svg{display:block}
 .plate{background:rgba(20,22,31,.74);transform:skewX(var(--sk));border-left:calc(var(--u)*.7) solid var(--yellow);border-radius:4px}
 .h-rank{position:absolute;display:flex;align-items:baseline;gap:.08em;padding:.02em .3em .02em .22em;font-size:calc(var(--u)*8.4);line-height:1.02;color:var(--yellow)}
 .h-rank small{font-size:.36em;color:var(--white)}
+.h-rank.up{animation:rkup .6s ease-out} .h-rank.down{animation:rkdn .6s ease-out}
+@keyframes rkup{0%{scale:1.35;color:#7dff9a}100%{scale:1}}
+@keyframes rkdn{0%{scale:.85;color:var(--red)}100%{scale:1}}
+@media (prefers-reduced-motion: reduce){.h-rank.up,.h-rank.down{animation:none}}
 .h-rank em{font-style:normal;font-size:.4em;color:var(--white);margin-right:.25em}
 .h-lap{position:absolute;padding:.18em .7em .18em .5em;font-size:calc(var(--u)*2.9);border-left-color:var(--white);white-space:nowrap}
 .h-lap b{font-weight:400;color:var(--yellow);font-size:1.3em}
@@ -288,7 +292,7 @@ body:not(.kb) .h-tip{top:48%}
     </aside>
   </div>
 </section>
-<div class="ver hidden" id="ver">v1.9</div>
+<div class="ver hidden" id="ver">v2.0</div>
 
 <!-- 온라인 로비 -->
 <section id="online" class="screen scrim hidden">
@@ -349,6 +353,7 @@ body:not(.kb) .h-tip{top:48%}
       <b>무한 부스터전</b><span>게이지가 3배 넘게 빨리 차고, 달리기만 해도 조금씩 찬다.</span>
       <b>완주</b><span>1등이 들어오면 10초 뒤 경기가 끝난다. 그 안에 못 들어오면 리타이어.</span>
       <b>트랙 장치</b><span>노란 줄무늬 점프대는 빠를수록 멀리 난다. 물웅덩이는 느려지고, 빙판은 미끄럽지만 드리프트 게이지가 잘 찬다. 짚더미·회전초는 부딪혀도 덜 손해, 바위·자동차는 크게 튕긴다.</span>
+      <b>슬립스트림</b><span>달리는 카트 바로 뒤에 붙어 잠깐 따라가면 바람 줄기가 생기며 최고 속도가 올라간다. 추월 기회.</span>
       <b>타임어택</b><span>혼자 달리기에서 "타임어택"을 고르면 내 최고 기록의 고스트(반투명 카트)와 달린다. 바퀴마다 기록과의 차이가 파랑(빠름)·빨강(느림)으로 뜬다. 트랙 카드 아래에 기록 표시.</span>
       <b>지름길</b><span>모래바람 협곡과 네온 시티에는 벽이 뚫린 샛길이 있다. 미니맵의 노란 점선. 좁고 굽어 있어 잘 타면 1~2초 빠르고, 부딪히면 오히려 손해.</span>
       <b>음악</b><span><kbd>M</kbd>으로 켜고 끈다. 마지막 바퀴에는 빨라진 곡으로 바뀐다. 음악: MintoDog (CC0, OpenGameArt)</span>

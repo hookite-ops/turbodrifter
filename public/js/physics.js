@@ -40,7 +40,7 @@ export function createKart() {
     drifting: false, driftDir: 0, driftT: 0, slip: 0, kick: 0, armed: false, pendDir: 0,
     gauge: 0, boosts: 0, boostT: 0, instT: 0, instWin: 0,
     ti: 0, lat: 0, s: 0, lap: -1, prog: 0, wrongT: 0,
-    hitT: 0, padT: 0, airT: 0, air: false, vy: 0, surf: 0, bumpT: 0, sc: 0, pi: 0, ps: 0, prevSc: 0,
+    hitT: 0, padT: 0, airT: 0, air: false, vy: 0, surf: 0, bumpT: 0, sc: 0, pi: 0, ps: 0, prevSc: 0, draftT: 0, draftOn: false,
     finished: false, finishTime: 0,
     ev: {},   // 이번 프레임에 일어난 일 (효과음·이펙트용)
     _loc: {},
@@ -139,6 +139,7 @@ export function stepKart(k, inp, dt, T, rule) {
   if (boosting) { vmax = C.boostSpeed; acc = C.boostAccel; }
   else if (inst) { vmax = C.instSpeed; acc = C.instAccel; }
   if (k.padT > 0) { k.padT -= dt; vmax = Math.max(vmax, C.boostSpeed); acc = Math.max(acc, C.boostAccel); }
+  if (k.draftOn && !water) { vmax += 3.2; acc += 6; }          // 슬립스트림: 앞 카트 바로 뒤에서 바람을 덜 받는다
   if (water) { vmax *= 0.6; acc *= 0.7; }                     // 물웅덩이: 느려진다
   if (k.bumpT > 0) k.bumpT -= dt;
   const slopeAcc = -(k._loc.slope || 0) * 9 * Math.cos(wrap(k.mv - Math.atan2(k._loc.tx || 0, k._loc.tz || 1)));

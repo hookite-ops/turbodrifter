@@ -97,6 +97,14 @@ export function makeFx(scene, camera) {
     dust(x, y, z, n = 5) {
       for (let i = 0; i < n; i++) { const g = 0.75 + Math.random() * 0.2; emit(x, y + 0.2, z, (Math.random() - 0.5) * 3, 0.5 + Math.random(), (Math.random() - 0.5) * 3, g, g, g * 0.95, 0.3, 0.7, 0.5, 3); }
     },
+    // 슬립스트림: 카트 양옆으로 흐르는 바람 줄기
+    streakAt(k, on) {
+      const sh = Math.sin(k.mv), ch = Math.cos(k.mv);
+      for (let q = 0; q < (on ? 3 : 1); q++) {
+        const side = Math.random() < 0.5 ? 1 : -1, off = 1.2 + Math.random() * 1.2;
+        emit(k.x + ch * side * off + sh * 3, k.y + 0.6 + Math.random() * 1.2, k.z - sh * side * off + ch * 3, -sh * 26, 0, -ch * 26, on ? 0.6 : 0.85, on ? 0.9 : 0.9, 1, on ? 0.7 : 0.35, 0.16, 0.28, 0.2, 0);
+      }
+    },
     splash(x, y, z, mv, speed, n = 2) {
       const sh = Math.sin(mv), ch = Math.cos(mv), v = Math.min(1.4, Math.abs(speed) / 25);
       for (let i = 0; i < n; i++) {

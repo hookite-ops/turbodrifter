@@ -481,6 +481,24 @@ function updateRace(dt, now) {
         if (e.bot && !e.finished) { stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule); if (e.k.ev.lap !== undefined) botLap(R, e); }
         else if (e.bot) stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule);
       }
+      // 슬립스트림: 앞 카트 3~22m 뒤, 좌우 2.4m 안에서 0.7초 버티면 발동
+      for (const a of R.karts) {
+        if (a.remote) continue;
+        const q = a.k; let behind = false;
+        if (q.speed > 17 && !q.air) {
+          const sh = Math.sin(q.mv), ch = Math.cos(q.mv);
+          for (const b of R.karts) {
+            if (b === a) continue;
+            const bx = b.remote && b.vis ? b.vis.x : b.k.x, bz = b.remote && b.vis ? b.vis.z : b.k.z, by = b.remote && b.vis ? b.vis.y : b.k.y;
+            if (Math.abs(by - q.y) > 3) continue;
+            const dx = bx - q.x, dz = bz - q.z, al = dx * sh + dz * ch, lt = dx * ch - dz * sh;
+            if (al > 3 && al < 22 && Math.abs(lt) < 2.4) { behind = true; break; }
+          }
+        }
+        q.draftT = behind ? q.draftT + H : Math.max(0, q.draftT - H * 2.5);
+        const was = q.draftOn; q.draftOn = q.draftT > 0.7;
+        if (a.me && q.draftOn && !was && first) { sfx.noise(0.5, 2600, 900, 0.22); flashSub('슬립스트림!', 'inst'); }
+      }
       // 카트끼리 밀기
       for (const a of R.karts) {
         if (a.remote) continue;
@@ -526,6 +544,11 @@ function updateRace(dt, now) {
   // ----- 순위 -----
   const order = R.karts.slice().sort((a, b) => (a.finished && b.finished) ? a.finishTime - b.finishTime : a.finished ? -1 : b.finished ? 1 : b.k.prog - a.k.prog);
   R.order = order; const myRank = order.indexOf(me) + 1;
+  if (R.phase === 'race' && R.lastRank && myRank !== R.lastRank && t > 3 && !me.finished) {   // 순위가 바뀌면 숫자판이 튄다
+    const el = document.querySelector('.h-rank'); el.classList.remove('up', 'down'); void el.offsetWidth; el.classList.add(myRank < R.lastRank ? 'up' : 'down');
+    if (myRank < R.lastRank) sfx.tone(988, 0.08, 'triangle', 0.12);
+  }
+  R.lastRank = myRank;
 
   // ----- 혼자 달리기: 종료 판정 -----
   if (!R.online && !R.done && R.phase === 'race') {
@@ -549,6 +572,8 @@ function updateRace(dt, now) {
       e.fx.wasBoost = s.boost;
     }
   }
+  // 슬립스트림 바람
+  if (simulate && k.draftT > 0.15) { R.draftAcc = (R.draftAcc || 0) + dt; if (R.draftAcc > 0.05) { R.draftAcc = 0; R.fx.streakAt && R.fx.streakAt(k, k.draftOn); } }
   // 물 튀김
   if (simulate) for (const e of R.karts) { const q = e.k; if (!e.remote && q.surf === 2 && Math.abs(q.speed) > 5 && Math.random() < dt * 30) R.fx.splash(q.x, q.y, q.z, q.mv, q.speed); }
   R.fx.update(simulate ? dt : 0, viewH, camera.fov);
