@@ -255,7 +255,7 @@ export function buildWorld(T, opt = {}) {
   // ----- 지름길 도로·벽 -----
   for (const S of SCs) {
     const dirtTex = canvasTex(256, 256, (c, w, h) => {
-      const base = theme === 'city' ? '#2b2c3c' : theme === 'desert' ? '#c99a5e' : '#8a7a5a';
+      const base = theme === 'city' ? '#2b2c3c' : theme === 'desert' ? '#c99a5e' : theme === 'ice' ? '#cdeaf8' : '#8a7a5a';
       c.fillStyle = base; c.fillRect(0, 0, w, h);
       for (let k = 0; k < 2600; k++) { c.fillStyle = `rgba(${R() < 0.5 ? '0,0,0' : '255,255,255'},${0.04 + R() * 0.08})`; c.fillRect(R() * w, R() * h, 1 + R() * 3, 1 + R() * 3); }
       if (theme === 'city') { c.fillStyle = '#ff3fa4'; c.fillRect(0, 0, 8, h); c.fillRect(w - 8, 0, 8, h); }

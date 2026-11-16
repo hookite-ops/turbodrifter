@@ -77,6 +77,10 @@ export const TRACKS = [
     ],
     jumps: [{ at: { e: 2, t: 0.8 }, len: 10, rise: 1.6 }],
     obs: [],
+    // 지름길: 서쪽 고리 안쪽 얼어붙은 연못을 가로지른다 (빙판이라 미끄럽다)
+    shortcuts: [{ from: { e: 4, t: 0.55 }, to: { e: 6, t: 0.45 }, hw: 4.4, surf: 'ice', kind: 'ice',
+      pts: [[-158, 40, 14], [-161, -40, 14]],
+      obs: [{ at: 0.5, lat: 1.5, r: 1.2, kind: 'rock' }] }],
     movers: [
       { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.35 }, a: 10, period: 5.2, phase: 0, r: 1.0 },
       { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.62 }, a: 10, period: 4.4, phase: 0.5, r: 1.0 },
@@ -346,6 +350,7 @@ function buildShortcut(T, sd, k) {
       for (let o = -w; o <= w; o++) g[(L.i + o + T.n) % T.n] = k + 1;
     }
   }
+  if (sd.surf === 'ice') for (let i = 0; i < n; i++) S.surf[i] = S.out[i] ? 1 : 0;
   if (sd.cliff) for (let i = 0; i < n; i++) S.cliff[i] = S.out[i] ? sd.cliff * Math.min(1, i / 6, (n - 1 - i) / 6) : 0;
   S.obs = (sd.obs || []).map(o => { const i = Math.round(o.at * (n - 1)); return { i, s: i * ds, lat: o.lat || 0, r: o.r || 1.2, kind: o.kind || 'rock', soft: !!o.soft }; });
   S.pads = (sd.pads || []).map(p => ({ i: Math.round(p.at * (n - 1)), lat: p.lat || 0, len: 5 }));

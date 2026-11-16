@@ -189,7 +189,8 @@ export function buildFeatures(T, H) {
   }
   if (byKind.rock) {
     const geo = new THREE.DodecahedronGeometry(1, 0); disposables.push(geo);
-    const items = byKind.rock.map(o => { const p = at(o); return { x: p.x, z: p.z, y: p.y + o.r * 0.45, sx: o.r * 1.05, sy: o.r * 0.95, sz: o.r * 1.1, ry: R() * 6, c: R() < 0.5 ? '#b8743f' : '#a5653a' }; });
+    const ice = H.th === undefined ? false : !!th.cliff && th.cliff === '#d9eefa';
+    const items = byKind.rock.map(o => { const p = at(o); return { x: p.x, z: p.z, y: p.y + o.r * 0.45, sx: o.r * 1.05, sy: o.r * 0.95, sz: o.r * 1.1, ry: R() * 6, c: ice ? (R() < 0.5 ? '#bfe6ff' : '#e6f6ff') : R() < 0.5 ? '#b8743f' : '#a5653a' }; });
     g.add(instanced(geo, lam({ color: '#ffffff', flatShading: true }), items, hq));
   }
   if (byKind.island) {   // 풍차가 서 있는 가운데 섬
