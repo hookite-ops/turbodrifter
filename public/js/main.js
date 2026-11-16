@@ -239,30 +239,62 @@ function makeSetup(el, cfg, onChange) {
 
 // ---------------- 온라인 ----------------
 const net = {
-  ws: null, id: 0, connected: false, offset: 0, room: null, _samples: [],
+  ws: null, id: 0, token: '', connected: false, offset: 0, room: null, _samples: [], _rc: false,
   now() { return Date.now() + this.offset; },
   send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); },
-  connect() {
-    if (this.connected) return Promise.resolve();
+  // resume: 끊기기 전에 받은 토큰. 있으면 같은 자리(방·경기)로 되돌아간다. 결과: true 성공 / false 자리가 없어짐
+  connect(resume = '') {
+    if (this.connected) return Promise.resolve(true);
     return new Promise((res, rej) => {
       const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
       this.ws = ws; let done = false;
       const fail = () => { if (!done) { done = true; rej(new Error('연결 실패')); } };
+      const ready = m => {
+        this.id = m.id; this.token = m.token; this.connected = true; this._samples = [];
+        try { sessionStorage.setItem('td_tok', m.token); } catch (e) {}
+        for (let i = 0; i < 5; i++) setTimeout(() => this.send({ t: 'ping', c: Date.now() }), i * 150);
+      };
       ws.onerror = fail;
-      ws.onclose = () => { const was = this.connected; this.connected = false; this.room = null; fail(); if (was) onDisconnected(); };
+      ws.onclose = () => {
+        if (this.ws !== ws) return;
+        const was = this.connected; this.connected = false; fail();
+        if (!was) return;
+        if (this.room && !this.bye) this.reconnect(); else { this.room = null; onDisconnected(); }
+      };
       ws.onmessage = ev => {
         let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.t === 'welcome') {
-          this.id = m.id; this.connected = true; this._samples = [];
+          if (resume) { ws.send(JSON.stringify({ t: 'resume', token: resume })); return; }
+          ready(m);
           this.send({ t: 'me', name: profile.name, char: profile.char, color: profile.color, kart: profile.kart | 0 });
-          for (let i = 0; i < 5; i++) setTimeout(() => this.send({ t: 'ping', c: Date.now() }), i * 150);
-          if (!done) { done = true; res(); }
+          if (!done) { done = true; res(true); }
+        } else if (m.t === 'resumed') {
+          ready(m); this.room = m.room;
+          if (!done) { done = true; res(true); }
+          if (!race && m.go) startRace({ ...m.go, online: true, players: m.room.players.filter(p => p.racing) });
+          else if (!race) { show('room'); renderRoom(); }
+        } else if (m.t === 'resumeFail') {
+          this.ws = null; try { ws.close(); } catch (e) {}
+          if (!done) { done = true; res(false); }
         } else if (m.t === 'pong') {
           const rtt = Date.now() - m.c; this._samples.push({ rtt, off: m.s - (m.c + rtt / 2) });
           this._samples.sort((a, b) => a.rtt - b.rtt); this.offset = this._samples[0].off;
         } else onNet(m);
       };
     });
+  },
+  // 연결이 끊기면 20초 안에 같은 자리로 되돌아가기를 시도한다 (경기 중이면 내 카트는 계속 달린다)
+  reconnect() {
+    if (this._rc) return; this._rc = true;
+    const token = this.token; let tries = 0;
+    toast('연결이 끊겼어요. 다시 연결하는 중…');
+    const giveUp = () => { this._rc = false; this.room = null; onDisconnected(); };
+    const attempt = () => {
+      tries++;
+      this.connect(token).then(ok => { if (ok) { this._rc = false; toast('다시 연결됐어요.'); } else giveUp(); })
+        .catch(() => { if (tries < 8) setTimeout(attempt, 2000); else giveUp(); });
+    };
+    setTimeout(attempt, 500);
   },
 };
 setInterval(() => { if (net.connected) net.send({ t: 'ping', c: Date.now() }); }, 20000);
@@ -287,14 +319,17 @@ function renderRoom() {
     if (!p) { d.className = 'pl empty'; d.textContent = '빈 자리'; }
     else {
       d.className = 'pl';
-      const st = p.id === r.host ? '<span class="st host">방장</span>' : p.ready ? '<span class="st ok">준비</span>' : '<span class="st">대기</span>';
-      d.innerHTML = `<span class="sw" style="background:${COLORS[p.color % COLORS.length].hex}"></span><span class="nm"></span>${st}`;
+      const st = p.off ? '<span class="st off">끊김</span>' : p.racing ? '<span class="st run">경기 중</span>' : p.id === r.host ? '<span class="st host">방장</span>' : p.ready ? '<span class="st ok">준비</span>' : '<span class="st">대기</span>';
+      const kick = host && p.id !== net.id && r.state === 'lobby' ? '<button class="kick" aria-label="내보내기" title="내보내기">✕</button>' : '';
+      d.innerHTML = `<span class="sw" style="background:${COLORS[p.color % COLORS.length].hex}"></span><span class="nm"></span>${st}${kick}`;
       d.querySelector('.nm').textContent = `${p.name}${p.id === net.id ? ' (나)' : ''}`;
+      const kb = d.querySelector('.kick'); if (kb) kb.onclick = () => { sfx.click(); net.send({ t: 'kick', id: p.id }); };
     }
     pl.appendChild(d);
   }
   const me = r.players.find(p => p.id === net.id) || {};
-  $('b-start').classList.toggle('hidden', !host); $('b-ready').classList.toggle('hidden', host);
+  const busy = r.state === 'racing';   // 경기 중인 방에 들어왔을 때: 끝날 때까지 기다린다
+  $('b-start').classList.toggle('hidden', !host || busy); $('b-ready').classList.toggle('hidden', host || busy);
   $('b-ready').textContent = me.ready ? '준비 취소' : '준비 완료';
   $('b-ready').classList.toggle('blue', !!me.ready);
   $('roomhint').textContent = host ? (r.players.length < 2 ? '친구에게 방 코드를 알려 주세요. 혼자서도 출발할 수 있어요.' : '모두 준비하면 출발할 수 있어요.') : '방장이 트랙과 모드를 고릅니다. 준비를 눌러 주세요.';
@@ -314,9 +349,11 @@ function renderRoomList(list) {
 function onNet(m) {
   switch (m.t) {
     case 'rooms': renderRoomList(m.rooms); break;
-    case 'room': net.room = m.room; if (!race && screen !== 'results') show('room'); renderRoom(); break;
+    case 'room': net.room = m.room; if (!race && screen !== 'results') show('room'); renderRoom(); if (m.room.state === 'racing' && !race) $('roomhint').textContent = '지금 경기가 진행 중이에요. 끝나면 여기서 다음 경기에 함께 출발해요.'; break;
+    case 'kicked': net.room = null; toast(m.m || '방장이 방에서 내보냈어요.'); if (!race) { show('online'); net.send({ t: 'list' }); } break;
+    case 'bye': net.bye = true; toast('서버가 다시 시작되고 있어요. 잠시 후 다시 접속해 주세요.'); setTimeout(() => { net.bye = false; }, 8000); break;
     case 'err': toast(m.m); break;
-    case 'go': net.room = m.room; startRace({ track: m.track, mode: m.mode, laps: m.laps, online: true, slots: m.slots, startAt: m.startAt, players: m.room.players }); break;
+    case 'go': net.room = m.room; startRace({ track: m.track, mode: m.mode, laps: m.laps, online: true, slots: m.slots, startAt: m.startAt, players: m.room.players.filter(p => p.racing !== false) }); break;
     case 's': if (race && race.online) { const k = race.byId.get(m.id); if (k && !k.me) recvState(k, m.d); } break;
     case 'fin': if (race && race.online) { const k = race.byId.get(m.id); if (k) { k.finished = true; k.finishTime = m.time; if (!k.me) k.k.finished = true; } } break;
     case 'endIn': if (race) race.endAt = performance.now() + m.ms; break;
@@ -905,6 +942,8 @@ function init() {
 (async function boot() {
   await loadKartAsset(); preloadLandmarks();
   init(); refreshMenuKart(); show('menu'); music.play('menu');
+  // 새로고침·끊김 뒤: 20초 안이면 있던 방(또는 경기)으로 되돌아간다
+  try { const tk = sessionStorage.getItem('td_tok'); if (tk) net.connect(tk).then(ok => { if (ok) toast('있던 방으로 돌아왔어요.'); }).catch(() => {}); } catch (e) {}
   $('loading').classList.add('hidden');
   requestAnimationFrame(frame);
   window.__td = { get frames() { return frames; }, info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles }), get race() { return race; }, net, startRace, key, tap, profile }; // 테스트용

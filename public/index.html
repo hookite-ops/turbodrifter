@@ -140,6 +140,9 @@ svg{display:block}
 .pl .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pl .st{font-size:12px;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,.12)}
 .pl .st.ok{background:var(--mint);color:var(--ink)} .pl .st.host{background:var(--yellow);color:var(--ink)}
+.pl .st.off{background:var(--red);color:#fff} .pl .st.run{background:var(--blue);color:var(--ink)}
+.pl .kick{width:26px;height:26px;border-radius:5px;background:rgba(255,255,255,.1);font-size:13px;flex:none;transition:background-color 140ms ease, transform 140ms var(--ease-out)} .pl .kick:active{transform:scale(.92)}
+@media (hover:hover) and (pointer:fine){.pl .kick:hover{background:var(--red)}}
 .pl.empty{opacity:.3;justify-content:center;font-weight:500}
 @media (max-height:559px){.pl.empty{display:none}}
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -328,7 +331,7 @@ body:not(.kb) .h-tip{top:48%}
   </div>
   <div class="m-util"><button class="btn ghost" id="b-help">조작법</button><button class="btn ghost" id="b-hq">그림자 켜짐</button><button class="btn ghost" id="b-bgm">음악 켜짐</button></div>
 </section>
-<div class="ver hidden" id="ver">v2.6</div>
+<div class="ver hidden" id="ver">v2.7</div>
 
 <!-- 온라인 로비 -->
 <section id="online" class="screen scrim hidden">
