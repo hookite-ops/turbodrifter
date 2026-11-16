@@ -81,7 +81,34 @@ let menuKart = null;
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   const disc = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.7, 0.36, 48), [new THREE.MeshLambertMaterial({ color: '#ffd21e' }), new THREE.MeshLambertMaterial({ map: tex }), new THREE.MeshLambertMaterial({ color: '#14161f' })]);
   disc.position.y = -0.18; menuScene.add(disc);
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 40), new THREE.MeshLambertMaterial({ color: '#20232f' })); floor.rotation.x = -Math.PI / 2; floor.position.y = -0.36; menuScene.add(floor);
+  // 차고 바닥: 아스팔트 + 피트 박스 선
+  const fc = document.createElement('canvas'); fc.width = fc.height = 1024; const fx2 = fc.getContext('2d');
+  fx2.fillStyle = '#242836'; fx2.fillRect(0, 0, 1024, 1024);
+  for (let i = 0; i < 5000; i++) { fx2.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,255'},${0.03 + Math.random() * 0.05})`; fx2.fillRect(Math.random() * 1024, Math.random() * 1024, 2 + Math.random() * 3, 2 + Math.random() * 3); }
+  fx2.strokeStyle = '#f6f3ea'; fx2.lineWidth = 10; fx2.strokeRect(332, 300, 360, 424);                       // 피트 박스
+  fx2.strokeStyle = '#ffd21e'; fx2.lineWidth = 14; fx2.beginPath(); fx2.moveTo(0, 820); fx2.lineTo(1024, 820); fx2.stroke();
+  for (let i = 0; i < 16; i++) { fx2.fillStyle = i % 2 ? '#14161f' : '#ffd21e'; fx2.beginPath(); fx2.moveTo(i * 64, 860); fx2.lineTo(i * 64 + 64, 860); fx2.lineTo(i * 64 + 32, 920); fx2.lineTo(i * 64 - 32, 920); fx2.fill(); }
+  const ftex = new THREE.CanvasTexture(fc); ftex.colorSpace = THREE.SRGBColorSpace; ftex.anisotropy = 8;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.MeshLambertMaterial({ map: ftex })); floor.rotation.x = -Math.PI / 2; floor.position.set(0, -0.36, -2); menuScene.add(floor);
+  const far = new THREE.Mesh(new THREE.CircleGeometry(60, 40), new THREE.MeshLambertMaterial({ color: '#1b1e29' })); far.rotation.x = -Math.PI / 2; far.position.y = -0.38; menuScene.add(far);
+  // 뒷벽: 셔터 패널 + 큰 사선 띠 + 경주 번호
+  const wc = document.createElement('canvas'); wc.width = 2048; wc.height = 768; const wx = wc.getContext('2d');
+  wx.fillStyle = '#1d2130'; wx.fillRect(0, 0, 2048, 768);
+  for (let y = 0; y < 768; y += 48) { wx.fillStyle = 'rgba(255,255,255,0.035)'; wx.fillRect(0, y, 2048, 3); wx.fillStyle = 'rgba(0,0,0,0.22)'; wx.fillRect(0, y + 44, 2048, 4); }
+  wx.save(); wx.transform(1, 0, -0.42, 1, 0, 0);
+  wx.fillStyle = '#ffd21e'; wx.fillRect(760, 0, 300, 768); wx.fillStyle = '#ff3d2e'; wx.fillRect(1090, 0, 70, 768); wx.fillStyle = '#f6f3ea'; wx.fillRect(1190, 0, 26, 768);
+  wx.restore();
+  wx.fillStyle = '#f6f3ea'; wx.beginPath(); wx.arc(1560, 330, 190, 0, 7); wx.fill();
+  wx.fillStyle = '#14161f'; wx.font = '900 300px "Black Han Sans", "Arial Black", sans-serif'; wx.textAlign = 'center'; wx.textBaseline = 'middle'; wx.fillText('7', 1560, 350);
+  for (let i = 0; i < 64; i++) for (let j = 0; j < 2; j++) { wx.fillStyle = (i + j) % 2 ? '#14161f' : '#f6f3ea'; wx.fillRect(i * 32, 704 + j * 32, 32, 32); }
+  const wtex = new THREE.CanvasTexture(wc); wtex.colorSpace = THREE.SRGBColorSpace; wtex.anisotropy = 8;
+  const wall = new THREE.Mesh(new THREE.PlaneGeometry(40, 15), new THREE.MeshLambertMaterial({ map: wtex })); wall.position.set(0, 7.1, -9.5); menuScene.add(wall);
+  for (const sx of [-1, 1]) { const sw = new THREE.Mesh(new THREE.PlaneGeometry(26, 15), new THREE.MeshLambertMaterial({ color: '#191c28' })); sw.position.set(sx * 20, 7.1, 3.5); sw.rotation.y = -sx * Math.PI / 2; menuScene.add(sw); }
+  // 타이어 더미·공구 상자 (차고 소품)
+  const tg = new THREE.TorusGeometry(0.55, 0.26, 10, 20), tm = new THREE.MeshLambertMaterial({ color: '#15171d' });
+  for (const [px, pz, n] of [[-5.2, -5.5, 4], [-4.0, -6.2, 3], [6.4, -6.0, 4]]) for (let i = 0; i < n; i++) { const t = new THREE.Mesh(tg, tm); t.rotation.x = Math.PI / 2; t.position.set(px, -0.1 + i * 0.52, pz); menuScene.add(t); }
+  const bx = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 0.9), new THREE.MeshLambertMaterial({ color: '#ff3d2e' })); bx.position.set(5.0, 0.24, -6.6); menuScene.add(bx);
+  const spot = new THREE.SpotLight('#fff3d0', 60, 30, 0.5, 0.6, 1.2); spot.position.set(0, 9, 3); spot.target.position.set(0, 0, 0); menuScene.add(spot, spot.target);
   menuScene.add(new THREE.HemisphereLight('#ffffff', '#3a4266', 1.5));
   const d = new THREE.DirectionalLight('#ffffff', 2.2); d.position.set(3, 5, 4); menuScene.add(d);
   const rim = new THREE.DirectionalLight('#ffd21e', 1.4); rim.position.set(-4, 2, -4); menuScene.add(rim);
@@ -183,13 +210,15 @@ const THEME_BG = { village: '#4faa3c', desert: '#d9a658', ice: '#a9d8f2', city: 
 // ---------------- 경기 설정 UI (방·혼자 공용) ----------------
 function makeSetup(el, cfg, onChange) {
   el.className = 'setup';
-  el.innerHTML = `<div class="lbl">트랙</div><div class="tracks"></div><div class="desc"></div>
+  el.innerHTML = `<div class="tracks"></div>
+    <div class="su-right"><h3 class="su-name"></h3><div class="su-meta"><span class="lv"></span><span class="len"></span><span class="rec"></span></div><p class="desc"></p>
     <div class="lbl">모드</div><div class="seg" data-k="mode"><button data-v="speed">스피드전</button><button data-v="infinite">무한 부스터전</button></div>
-    <div class="lbl">바퀴 수</div><div class="seg" data-k="laps"><button data-v="1">1바퀴</button><button data-v="2">2바퀴</button><button data-v="3">3바퀴</button><button data-v="5">5바퀴</button></div>`;
+    <div class="lbl">바퀴 수</div><div class="seg" data-k="laps"><button data-v="1">1바퀴</button><button data-v="2">2바퀴</button><button data-v="3">3바퀴</button><button data-v="5">5바퀴</button></div>
+    <div class="su-extra"></div></div>`;
   const tr = el.querySelector('.tracks');
   for (const d of TRACKS) {
     const b = document.createElement('button'); b.className = 'tcard'; b.dataset.id = d.id;
-    b.innerHTML = `<canvas width="200" height="160"></canvas><b>${d.name}</b><i>${d.level}</i><small class="rec"></small>`;
+    b.innerHTML = `<canvas width="310" height="200"></canvas><b>${d.name}</b><i>${d.level}</i><small class="rec"></small><span class="ck"></span>`;
     tr.appendChild(b); drawTrack(b.querySelector('canvas'), getTrack(d.id), 8, THEME_BG[d.theme]);
     b.onclick = () => { sfx.click(); cfg.track = d.id; cfg.laps = d.laps; onChange(cfg); paint(); };
   }
@@ -198,9 +227,14 @@ function makeSetup(el, cfg, onChange) {
     tr.querySelectorAll('.tcard').forEach(b => { b.classList.toggle('on', b.dataset.id === cfg.track); const r = records[recKey({ ...cfg, track: b.dataset.id, laps: b.dataset.id === cfg.track ? cfg.laps : (TRACKS.find(t => t.id === b.dataset.id) || {}).laps })]; b.querySelector('.rec').textContent = r ? '기록 ' + fmt(r.total) : ''; });
     el.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', String(cfg[b.parentElement.dataset.k]) === b.dataset.v));
     const d = TRACKS.find(t => t.id === cfg.track); el.querySelector('.desc').textContent = d ? d.desc : '';
+    if (d) {
+      el.querySelector('.su-name').textContent = d.name; el.querySelector('.su-meta .lv').textContent = d.level;
+      el.querySelector('.su-meta .len').textContent = `한 바퀴 ${Math.round(getTrack(d.id).length)}m`;
+      const r = records[recKey(cfg)]; el.querySelector('.su-meta .rec').textContent = r ? '내 기록 ' + fmt(r.total) : '';
+    }
   }
   paint();
-  return { paint, lock(v) { el.classList.toggle('locked', v); } };
+  return { paint, extra: el.querySelector('.su-extra'), lock(v) { el.classList.toggle('locked', v); } };
 }
 
 // ---------------- 온라인 ----------------
@@ -392,6 +426,7 @@ function finishRace(results) {
   const list = $('res-list'); list.innerHTML = '';
   for (const r of results) {
     const d = document.createElement('div'); d.className = `res r${r.rank}${r.me ? ' me' : ''}`;
+    d.style.setProperty('--i', r.rank - 1);
     d.innerHTML = `<span class="rk">${r.rank}위</span><span class="nm"></span><span class="tm">${fmt(r.time)}</span>`;
     d.querySelector('.nm').textContent = r.name; list.appendChild(d);
   }
@@ -624,7 +659,7 @@ function updateRace(dt, now) {
   const fovT = baseFov + sp01 * 6 + R.boostAmt * 12;
   camera.fov += (Math.min(fovT, 112) - camera.fov) * (1 - Math.exp(-7 * dt)); camera.updateProjectionMatrix();
   R.fx.streak(R.phase === 'countdown' ? 0 : clamp((sp01 - 0.66) * 1.1, 0, 0.3) + R.boostAmt * 0.7, dt);
-  $('boostfx').style.opacity = R.boostAmt.toFixed(2);
+  { const o = Math.round(R.boostAmt * 25) / 25; if (hudCache.bfx !== o) { hudCache.bfx = o; $('boostfx').style.opacity = o; } }
 
   // ----- 소리 -----
   if (simulate) sfx.drive(clamp(Math.abs(k.speed) / C.boostSpeed, 0, 1), k.drifting ? clamp(Math.abs(k.slip) / 0.5, 0.4, 1) : 0, boosting ? 2 : k.instT > 0 ? 1 : 0);
@@ -646,7 +681,7 @@ function updateRace(dt, now) {
   $('h-inst').classList.toggle('on', k.instWin > 0 && !me.finished);
   if (R.tipT > 0) { R.tipT -= dt; if (R.tipT <= 0) $('h-tip').classList.add('hidden'); }
   $('h-speedbox').classList.toggle('boost', boosting);
-  $('bar-i').style.width = (clamp(k.gauge, 0, 1) * 100).toFixed(1) + '%';
+  { const g = Math.round(clamp(k.gauge, 0, 1) * 200) / 200; if (hudCache.gauge !== g) { hudCache.gauge = g; $('bar-i').style.transform = `scaleX(${g})`; } }
   $('bar').classList.toggle('full', k.boosts >= 2 && k.gauge >= 1);
   $('slot0').classList.toggle('on', k.boosts >= 1); $('slot1').classList.toggle('on', k.boosts >= 2);
   $('t-boost').classList.toggle('ready', k.boosts > 0 && k.instWin <= 0); $('t-boost').classList.toggle('inst', k.instWin > 0 && !me.finished);
@@ -798,7 +833,7 @@ function renderMenu(dt, now) {
   const portrait = camera.aspect < 1;
   camera.fov = portrait ? 52 : 38; camera.updateProjectionMatrix();
   if (portrait) { camera.position.set(0, 3.2, 10); camera.lookAt(0, -2.6, 0); }
-  else { camera.position.set(-0.9, 2.5, 9.6); camera.lookAt(2.0, 0.55, 0); }   // 카트를 화면 왼쪽에
+  else { camera.position.set(-0.6, 2.2, 8.0); camera.lookAt(1.75, 0.75, 0); }   // 카트를 화면 왼쪽에
   renderer.render(menuScene, camera);
 }
 
@@ -817,7 +852,10 @@ function buildMenu() {
 const soloCfg = Object.assign({ track: 'village', mode: 'speed', laps: 3, rivals: 7 }, store.get('td_solo', {}));
 function init() {
   buildMenu();
-  makeSetup($('solo-setup'), soloCfg, () => store.set('td_solo', soloCfg));
+  const soloSetup = makeSetup($('solo-setup'), soloCfg, () => store.set('td_solo', soloCfg));
+  soloSetup.extra.append($('solo-rivals-lbl'), $('solo-rivals'), $('b-solo-go'));
+  const paintBgm = () => { $('b-bgm').textContent = music.on ? '음악 켜짐' : '음악 꺼짐'; };
+  $('b-bgm').onclick = () => { music.setOn(!music.on); sfx.click(); paintBgm(); }; paintBgm();
   roomSetup = makeSetup($('room-setup'), roomCfg, c => net.send({ t: 'cfg', track: c.track, mode: c.mode, laps: c.laps }));
   const rv = $('solo-rivals');
   const paintR = () => rv.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === soloCfg.rivals));
