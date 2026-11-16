@@ -79,7 +79,7 @@ function create(p) {
   rooms.set(r.code, r); join(p, r);
 }
 function startRace(r) {
-  r.state = 'racing'; r.startAt = Date.now() + 5500; r.firstFin = 0; r.results = [];
+  r.state = 'racing'; r.startAt = Date.now() + 8600; r.firstFin = 0; r.results = [];
   const ids = [...r.players.keys()].sort(() => Math.random() - 0.5);
   const slots = {}; ids.forEach((id, i) => { slots[id] = i; });
   for (const p of r.players.values()) { p.fin = false; p.time = 0; p.prog = -1e9; p.ready = false; }

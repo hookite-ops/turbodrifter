@@ -327,7 +327,7 @@ function startRace(cfg) {
     R.startPerf = performance.now() + (cfg.startAt - net.now());
     for (const p of cfg.players) addKart(R, { id: p.id, name: p.name, char: p.char, color: p.color, kart: p.kart, slot: cfg.slots[p.id] ?? 0, me: p.id === net.id, remote: p.id !== net.id });
   } else {
-    R.startPerf = performance.now() + 4600;
+    R.startPerf = performance.now() + 8600;   // 앞 4초: 트랙 소개 비행
     const n = cfg.rivals | 0, slots = [...Array(n + 1).keys()];
     const mySlot = n; // 맨 뒤에서 출발
     const used = new Set([profile.color]);
@@ -341,6 +341,8 @@ function startRace(cfg) {
   }
   R.me = R.karts.find(k => k.me);
   R.camA = R.me.k.h; R.camY = R.me.k.y;
+  { let a = 1e9, b2 = -1e9, c = 1e9, d = -1e9; for (let i = 0; i < T.n; i++) { a = Math.min(a, T.x[i]); b2 = Math.max(b2, T.x[i]); c = Math.min(c, T.z[i]); d = Math.max(d, T.z[i]); } R.center = { x: (a + b2) / 2, z: (c + d) / 2, r: Math.max(b2 - a, d - c) / 2 }; }
+  R.introShown = false;
   // 기록·고스트
   R.lapTimes = []; R.frames = []; R.recNext = 0; R.rec = null; R.ghost = null;
   if (!R.online) {
@@ -443,6 +445,7 @@ const hudCache = {};
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
 
 const H = 1 / 120;
+const _lk = new THREE.Vector3();
 function updateRace(dt, now) {
   const R = race, T = R.T, me = R.me, k = me.k;
   const simulate = !(paused && !R.online);
@@ -450,11 +453,16 @@ function updateRace(dt, now) {
 
   // ----- 카운트다운 -----
   if (R.phase === 'countdown') {
+    if (t < -4.3) {   // 트랙 소개
+      if (!R.introShown) { R.introShown = true; showMsg(T.def.name, 'intro', 3.6); }
+      if (!R.online && (tap.accel || tap.boost || tap.drift)) { R.startPerf = now + 4300; tap.accel = tap.boost = tap.drift = false; }   // 아무 키나 누르면 건너뛰기
+    }
+    R.world.setLights && R.world.setLights(t < -3 ? 0 : t < -2 ? 2 : t < -1 ? 4 : 5);
     const c = Math.ceil(-t);
     if (tap.accel || tap.boost) R.startTap = now;
     if (c !== R.lastCount && c <= 3 && c >= 1) { R.lastCount = c; showMsg(String(c), '', 0.9); sfx.beep(false); }
     if (t >= 0) {
-      R.phase = 'race'; showMsg('GO!', 'go', 1.0); sfx.beep(true);
+      R.phase = 'race'; showMsg('GO!', 'go', 1.0); sfx.beep(true); R.world.setLights && R.world.setLights('go'); R.lightsOffAt = t + 4;
       for (const e of R.karts) e.lapStart = 0;
       if (now - R.startTap < 160) { startBoost(k); R.startUsed = true; boostFx(R, k); setTimeout(() => race === R && flashSub('출발 부스터!', 'inst'), 0); }
       for (const e of R.karts) if (e.bot && Math.random() < e.bot.skill * 0.7) startBoost(e.k);
@@ -462,6 +470,7 @@ function updateRace(dt, now) {
     tap.accel = tap.boost = tap.drift = false;
   }
 
+  if (R.lightsOffAt && t > R.lightsOffAt) { R.lightsOffAt = 0; R.world.setLights && R.world.setLights(0); }
   // ----- 물리 (고정 간격) -----
   if (simulate && R.phase !== 'countdown') {
     R.acc += dt; let first = true; R.rule.time = Math.max(0, t);
@@ -601,6 +610,16 @@ function updateRace(dt, now) {
   if (R.boostAmt > 0.05) { shx += Math.sin(now * 0.07) * 0.022 * R.boostAmt; shy += Math.sin(now * 0.113) * 0.016 * R.boostAmt; }
   camera.position.set(k.x - Math.sin(yaw) * dist + Math.cos(yaw) * shx, R.camY + ch + shy, k.z - Math.cos(yaw) * dist - Math.sin(yaw) * shx);
   camera.lookAt(k.x + Math.sin(R.camA) * 5.5 * front, R.camY + 0.95, k.z + Math.cos(R.camA) * 5.5 * front);
+  if (R.phase === 'countdown' && t < -3.7) {   // 트랙 소개: 하늘에서 트랙 전체를 돌아보다가 출발선으로 내려온다
+    const C0 = R.center, u = clamp((t + 8.6) / 4.3, 0, 1), a0 = R.camA + Math.PI * 0.75 - u * 1.6;
+    const rad = C0.r * (1.25 - u * 0.35), hgt = C0.r * (0.85 - u * 0.3) + 20;
+    const ix = C0.x + Math.sin(a0) * rad, iz = C0.z + Math.cos(a0) * rad;
+    const blend = clamp((t + 4.6) / 0.9, 0, 1), e = blend * blend * (3 - 2 * blend);   // 마지막 0.9초는 출발 카메라로 이어 붙이기
+    const lx = C0.x + (k.x - C0.x) * u * 0.6, lz = C0.z + (k.z - C0.z) * u * 0.6;
+    const cpx = camera.position.x, cpy = camera.position.y, cpz = camera.position.z;
+    camera.position.set(ix + (cpx - ix) * e, hgt + (cpy - hgt) * e, iz + (cpz - iz) * e);
+    _lk.set(lx + (k.x - lx) * e, 0 + (R.camY + 0.95) * e, lz + (k.z - lz) * e); camera.lookAt(_lk);
+  }
   const fovT = baseFov + sp01 * 6 + R.boostAmt * 12;
   camera.fov += (Math.min(fovT, 112) - camera.fov) * (1 - Math.exp(-7 * dt)); camera.updateProjectionMatrix();
   R.fx.streak(R.phase === 'countdown' ? 0 : clamp((sp01 - 0.66) * 1.1, 0, 0.3) + R.boostAmt * 0.7, dt);

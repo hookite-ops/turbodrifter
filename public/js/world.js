@@ -369,6 +369,7 @@ export function buildWorld(T, opt = {}) {
   const blocked = (x, z) => zones.some(l => Math.hypot(l.x - x, l.z - z) < l.r);
 
   // ----- 출발 게이트 + 관중석 -----
+  const startLights = [];
   const dirAt = i => Math.atan2(T.tx[i], T.tz[i]);
   const matSolid = lam({ color: '#ffffff' });
   {
@@ -387,7 +388,7 @@ export function buildWorld(T, opt = {}) {
     for (const z of [0.62, -0.62]) { const bm = new THREE.Mesh(new THREE.PlaneGeometry(hw * 2 + 3.4, 2.7), basic({ map: banner, side: THREE.DoubleSide })); bm.position.set(0, 7.4, z); bm.rotation.y = z > 0 ? 0 : Math.PI; gate.add(bm); disposables.push(bm.geometry); }
     // 신호등
     const housing = new THREE.Mesh(box, dark); housing.scale.set(6.4, 1.3, 0.5); housing.position.set(0, 5.3, -0.75); gate.add(housing);
-    for (let q = -2; q <= 2; q++) { const l = new THREE.Mesh(new THREE.CircleGeometry(0.4, 14), basic({ color: q === 0 ? '#ffd21e' : '#ff3d2e' })); l.position.set(q * 1.2, 5.3, -1.02); l.rotation.y = Math.PI; gate.add(l); disposables.push(l.geometry); }
+    for (let q = -2; q <= 2; q++) for (const zz of [-1.02, -0.48]) { const l = new THREE.Mesh(new THREE.CircleGeometry(0.4, 14), basic({ color: '#2a1414' })); l.position.set(q * 1.2, 5.3, zz); l.rotation.y = zz < -0.7 ? Math.PI : 0; gate.add(l); disposables.push(l.geometry); startLights.push({ m: l, q: q + 2 }); }
     g.add(gate);
     zones.push({ x: T.x[0], z: T.z[0], r: hw + 6 });
 
@@ -603,6 +604,11 @@ export function buildWorld(T, opt = {}) {
   return {
     group: g, theme: th, heightAt, hq,
     fog: new THREE.Fog(th.fog, th.night ? 140 : 260, th.night ? 950 : 1350),
+    // 출발 신호등: n = 켜진 빨간 불 수(0~5), 'go' = 모두 초록
+    setLights(n) {
+      if (n === this._ln) return; this._ln = n;
+      for (const { m, q } of startLights) m.material.color.set(n === 'go' ? '#3dff6e' : q < n ? '#ff2a2a' : '#2a1414');
+    },
     update(t, px = 0, pz = 0, time = 0) {
       padTex.offset.y = -t * 2.2; feat.update(t, time);
       if (hq) { const gx = Math.round(px / 4) * 4, gz = Math.round(pz / 4) * 4; sun.target.position.set(gx, 0, gz); sun.position.set(gx + sunDir.x * 200, sunDir.y * 200, gz + sunDir.z * 200); }

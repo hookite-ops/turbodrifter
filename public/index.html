@@ -175,7 +175,7 @@ svg{display:block}
 .h-msg.go{color:#5dff9b} .h-msg.pop{animation:msgpop .45s cubic-bezier(.2,1.6,.4,1)}
 @keyframes msgpop{0%{transform:translate(-50%,-50%) skewX(-10deg) scale(2.3);opacity:0}100%{transform:translate(-50%,-50%) skewX(-10deg) scale(1);opacity:1}}
 .h-sub{position:absolute;left:50%;top:45%;transform:translateX(-50%) skewX(-10deg);font-size:calc(var(--u)*4.2);text-shadow:.06em .07em 0 var(--ink);white-space:nowrap;text-align:center}
-.h-sub.inst{color:var(--blue)} .h-sub.warn{color:var(--red)} .h-sub.end{color:var(--yellow)}
+.h-msg.intro{font-size:calc(var(--u)*7);color:var(--white)} .h-sub.inst{color:var(--blue)} .h-sub.warn{color:var(--red)} .h-sub.end{color:var(--yellow)}
 .h-tip{position:absolute;left:50%;transform:translateX(-50%);font-family:var(--body);font-weight:700;font-size:calc(var(--u)*2.3);background:rgba(20,22,31,.8);padding:.5em 1.1em;border-radius:5px;white-space:nowrap;display:flex;gap:1.3em;align-items:center}
 .h-tip span{display:flex;gap:.45em;align-items:center}
 .h-tip kbd,.help-grid kbd{font-family:var(--body);font-weight:700;background:var(--white);color:var(--ink);border-radius:4px;padding:.05em .5em;box-shadow:0 2px 0 #9a988f}
@@ -292,7 +292,7 @@ body:not(.kb) .h-tip{top:48%}
     </aside>
   </div>
 </section>
-<div class="ver hidden" id="ver">v2.0</div>
+<div class="ver hidden" id="ver">v2.1</div>
 
 <!-- 온라인 로비 -->
 <section id="online" class="screen scrim hidden">
