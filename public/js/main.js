@@ -51,7 +51,7 @@ function sendEmote(idx) {
 }
 
 // ---------------- 기록·고스트 (혼자 달리기) ----------------
-const recKey = c => `${c.track}|${c.mode}|${c.laps}|${c.track === 'neon' ? 'm3' : 'm2'}`;   // m2: 맵을 다시 만든 뒤의 기록
+const recKey = c => `${c.track}|${c.mode}|${c.laps}|${c.track === 'neon' ? 'm3' : 'm2'}${c.rev ? '|R' : ''}`;   // m2: 맵을 다시 만든 뒤의 기록
 const records = store.get('td_rec', {});
 const fmtGap = ms => (ms < 0 ? '-' : '+') + (Math.abs(ms) / 1000).toFixed(2);
 
@@ -222,7 +222,7 @@ document.addEventListener('pointerdown', () => sfx.init(), { once: true });
 
 // ---------------- 트랙 캐시·썸네일 ----------------
 const trackCache = new Map();
-const getTrack = id => { if (!trackCache.has(id)) trackCache.set(id, buildTrack(TRACKS.find(t => t.id === id) || TRACKS[0])); return trackCache.get(id); };
+const getTrack = (id, rev) => { const key = id + (rev ? '_r' : ''); if (!trackCache.has(key)) trackCache.set(key, buildTrack(TRACKS.find(t => t.id === id) || TRACKS[0], 2, !!rev)); return trackCache.get(key); };
 function trackPath(T, w, h, pad) {
   let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
   for (let i = 0; i < T.n; i++) { minX = Math.min(minX, -T.x[i]); maxX = Math.max(maxX, -T.x[i]); minZ = Math.min(minZ, -T.z[i]); maxZ = Math.max(maxZ, -T.z[i]); }
@@ -254,22 +254,23 @@ function makeSetup(el, cfg, onChange) {
     <div class="su-right"><h3 class="su-name"></h3><div class="su-meta"><span class="lv"></span><span class="len"></span><span class="rec"></span></div><p class="desc"></p>
     <div class="lbl">모드</div><div class="seg" data-k="mode"><button data-v="speed">스피드전</button><button data-v="infinite">무한 부스터전</button></div>
     <div class="lbl">바퀴 수</div><div class="seg" data-k="laps"><button data-v="1">1바퀴</button><button data-v="2">2바퀴</button><button data-v="3">3바퀴</button></div>
+    <div class="lbl">방향</div><div class="seg" data-k="rev"><button data-v="0">정방향</button><button data-v="1">역방향</button></div>
     <div class="su-extra"></div></div>`;
   const tr = el.querySelector('.tracks');
   for (const d of TRACKS) {
     const b = document.createElement('button'); b.className = 'tcard'; b.dataset.id = d.id;
     b.innerHTML = `<canvas width="310" height="200"></canvas><b>${d.name}</b><i>${d.level}</i><small class="rec"></small><span class="ck"></span>`;
-    tr.appendChild(b); drawTrack(b.querySelector('canvas'), getTrack(d.id), 8, THEME_BG[d.theme]);
+    tr.appendChild(b); b._draw = rev => drawTrack(b.querySelector('canvas'), getTrack(d.id, rev), 8, THEME_BG[d.theme]); b._draw(cfg.rev); b._rev = !!cfg.rev;
     b.onclick = () => { sfx.click(); cfg.track = d.id; cfg.laps = d.laps; onChange(cfg); paint(); };
   }
-  el.querySelectorAll('.seg button').forEach(b => b.onclick = () => { sfx.click(); const k = b.parentElement.dataset.k; cfg[k] = k === 'laps' ? +b.dataset.v : b.dataset.v; onChange(cfg); paint(); });
+  el.querySelectorAll('.seg button').forEach(b => b.onclick = () => { sfx.click(); const k = b.parentElement.dataset.k; cfg[k] = k === 'mode' ? b.dataset.v : +b.dataset.v; onChange(cfg); paint(); });
   function paint() {
-    tr.querySelectorAll('.tcard').forEach(b => { b.classList.toggle('on', b.dataset.id === cfg.track); const r = records[recKey({ ...cfg, track: b.dataset.id, laps: b.dataset.id === cfg.track ? cfg.laps : (TRACKS.find(t => t.id === b.dataset.id) || {}).laps })]; b.querySelector('.rec').textContent = r ? '기록 ' + fmt(r.total) : ''; });
-    el.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', String(cfg[b.parentElement.dataset.k]) === b.dataset.v));
+    tr.querySelectorAll('.tcard').forEach(b => { if (b._rev !== !!cfg.rev) { b._rev = !!cfg.rev; b._draw(cfg.rev); } b.classList.toggle('on', b.dataset.id === cfg.track); const r = records[recKey({ ...cfg, track: b.dataset.id, laps: b.dataset.id === cfg.track ? cfg.laps : (TRACKS.find(t => t.id === b.dataset.id) || {}).laps })]; b.querySelector('.rec').textContent = r ? '기록 ' + fmt(r.total) : ''; });
+    el.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', (b.parentElement.dataset.k === 'mode' ? cfg.mode : String(cfg[b.parentElement.dataset.k] | 0)) === b.dataset.v));
     const d = TRACKS.find(t => t.id === cfg.track); el.querySelector('.desc').textContent = d ? d.desc : '';
     if (d) {
-      el.querySelector('.su-name').textContent = d.name; el.querySelector('.su-meta .lv').textContent = d.level;
-      el.querySelector('.su-meta .len').textContent = `한 바퀴 ${Math.round(getTrack(d.id).length)}m`;
+      el.querySelector('.su-name').textContent = d.name + (cfg.rev ? ' (역주행)' : ''); el.querySelector('.su-meta .lv').textContent = d.level;
+      el.querySelector('.su-meta .len').textContent = `한 바퀴 ${Math.round(getTrack(d.id, cfg.rev).length)}m`;
       const r = records[recKey(cfg)]; el.querySelector('.su-meta .rec').textContent = r ? '내 기록 ' + fmt(r.total) : '';
     }
   }
@@ -344,13 +345,13 @@ function onDisconnected() {
   if (race && race.online) endRace();
   if (['online', 'room', 'results'].includes(screen) || race) show('menu');
 }
-const roomCfg = { track: 'village', mode: 'speed', laps: 3 };
+const roomCfg = { track: 'village', mode: 'speed', laps: 3, rev: 0 };
 let roomSetup = null;
 function renderRoom() {
   const r = net.room; if (!r) return;
   $('roomcode').textContent = r.code;
   const host = r.host === net.id;
-  Object.assign(roomCfg, { track: r.track, mode: r.mode, laps: r.laps });
+  Object.assign(roomCfg, { track: r.track, mode: r.mode, laps: r.laps, rev: r.rev | 0 });
   roomSetup.paint(); roomSetup.lock(!host);
   $('pcount').textContent = `${r.players.length}/8`;
   const pl = $('players'); pl.innerHTML = '';
@@ -395,7 +396,7 @@ function onNet(m) {
     case 'kicked': net.room = null; toast(m.m || '방장이 방에서 내보냈어요.'); if (!race) { show('online'); net.send({ t: 'list' }); } break;
     case 'bye': net.bye = true; toast('서버가 다시 시작되고 있어요. 잠시 후 다시 접속해 주세요.'); setTimeout(() => { net.bye = false; }, 8000); break;
     case 'err': toast(m.m); break;
-    case 'go': net.room = m.room; startRace({ track: m.track, mode: m.mode, laps: m.laps, online: true, slots: m.slots, startAt: m.startAt, players: m.room.players.filter(p => p.racing !== false) }); break;
+    case 'go': net.room = m.room; startRace({ track: m.track, mode: m.mode, laps: m.laps, rev: m.rev | 0, online: true, slots: m.slots, startAt: m.startAt, players: m.room.players.filter(p => p.racing !== false) }); break;
     case 's': if (race && race.online) { const k = race.byId.get(m.id); if (k && !k.me) recvState(k, m.d); } break;
     case 'fin': if (race && race.online) { const k = race.byId.get(m.id); if (k) { k.finished = true; k.finishTime = m.time; if (!k.me) k.k.finished = true; } } break;
     case 'endIn': if (race) race.endAt = performance.now() + m.ms; break;
@@ -427,7 +428,7 @@ function removeKart(id) {
 function startRace(cfg) {
   if (race) endRace();
   sfx.init();
-  const T = getTrack(cfg.track);
+  const T = getTrack(cfg.track, cfg.rev);
   renderer.shadowMap.enabled = HQ;
   const world = buildWorld(T, { hq: HQ });
   while (scene.children.length) scene.remove(scene.children[0]);
@@ -938,7 +939,7 @@ function buildMenu() {
   function paint() { paintStats(); [...ce.children].forEach((b, i) => b.classList.toggle('on', i === profile.char)); [...co.children].forEach((b, i) => b.classList.toggle('on', i === profile.color)); [...ke.children].forEach((b, i) => b.classList.toggle('on', i === (profile.kart | 0))); $('colorlbl').textContent = '스카프 색'; }
   paint();
 }
-const soloCfg = Object.assign({ track: 'village', mode: 'speed', laps: 3, rivals: 7 }, store.get('td_solo', {}));
+const soloCfg = Object.assign({ track: 'village', mode: 'speed', laps: 3, rivals: 7, rev: 0 }, store.get('td_solo', {}));
 if (![1, 2, 3].includes(soloCfg.laps)) soloCfg.laps = 3;   // 5바퀴를 뺀 뒤 저장값 정리
 function init() {
   buildMenu();
@@ -954,7 +955,7 @@ function init() {
   soloSetup.extra.append($('solo-rivals-lbl'), $('solo-rivals'), $('b-solo-go'));
   const paintBgm = () => { $('b-bgm').textContent = music.on ? '음악 켜짐' : '음악 꺼짐'; };
   $('b-bgm').onclick = () => { music.setOn(!music.on); sfx.click(); paintBgm(); }; paintBgm();
-  roomSetup = makeSetup($('room-setup'), roomCfg, c => net.send({ t: 'cfg', track: c.track, mode: c.mode, laps: c.laps }));
+  roomSetup = makeSetup($('room-setup'), roomCfg, c => net.send({ t: 'cfg', track: c.track, mode: c.mode, laps: c.laps, rev: c.rev | 0 }));
   const rv = $('solo-rivals');
   const paintR = () => rv.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === soloCfg.rivals));
   rv.querySelectorAll('button').forEach(b => b.onclick = () => { sfx.click(); soloCfg.rivals = +b.dataset.v; store.set('td_solo', soloCfg); paintR(); }); paintR();

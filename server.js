@@ -92,7 +92,7 @@ function newCode() {
 }
 function roomView(r) {
   return {
-    code: r.code, host: r.host, track: r.track, mode: r.mode, laps: r.laps, state: r.state,
+    code: r.code, host: r.host, track: r.track, mode: r.mode, laps: r.laps, rev: r.rev | 0, state: r.state,
     players: [...r.players.values()].map(p => ({ id: p.id, name: p.name, char: p.char, color: p.color, kart: p.kart, ready: p.ready, off: !p.ws, racing: !!p.racing })),
   };
 }
@@ -137,7 +137,7 @@ function join(p, r) {
 }
 function create(p) {
   if (rooms.size >= MAX_ROOMS) return send(p.ws, { t: 'err', m: '지금은 방이 너무 많아요. 열린 방에 들어가 보세요.' });
-  const r = { code: newCode(), host: p.id, track: 'village', mode: 'speed', laps: 3, state: 'lobby', players: new Map(), endTimer: null, capTimer: null, active: Date.now() };
+  const r = { code: newCode(), host: p.id, track: 'village', mode: 'speed', laps: 3, rev: 0, state: 'lobby', players: new Map(), endTimer: null, capTimer: null, active: Date.now() };
   rooms.set(r.code, r); log('room_open', { code: r.code });
   join(p, r);
 }
@@ -149,7 +149,7 @@ function startRace(r) {
   const slots = {}; ids.forEach((id, i) => { slots[id] = i; });
   for (const p of r.players.values()) { p.fin = false; p.time = 0; p.prog = -1e9; p.ready = false; p.racing = !!p.ws; p.lastS = 0; }
   r.minTime = r.laps * TRACK_LEN[r.track] / TOP_SPEED * 1000;
-  r.goMsg = { t: 'go', startAt: r.startAt, slots, track: r.track, mode: r.mode, laps: r.laps };
+  r.goMsg = { t: 'go', startAt: r.startAt, slots, track: r.track, mode: r.mode, laps: r.laps, rev: r.rev | 0 };
   cast(r, { ...r.goMsg, room: roomView(r) });
   clearTimeout(r.capTimer);
   r.capTimer = setTimeout(() => finishRace(r), START_DELAY + 6 * 60 * 1000);
@@ -259,6 +259,7 @@ wss.on('connection', (ws, req) => {
           if (TRACK_IDS.includes(m.track)) r.track = m.track;
           if (MODES.includes(m.mode)) r.mode = m.mode;
           if ([1, 2, 3].includes(m.laps)) r.laps = m.laps;
+          if (m.rev !== undefined) r.rev = m.rev ? 1 : 0;
           touch(r); pushRoom(r);
         }
         break;

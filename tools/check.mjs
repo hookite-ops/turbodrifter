@@ -6,7 +6,7 @@ const out = [];
 const only = process.argv[2];
 for (const def of TRACKS) {
   if (only && def.id !== only) continue;
-  const T = buildTrack(def);
+  const T = buildTrack(def, 2, !!process.env.REV);
   let minR = 1e9, minAt = 0, sharp = 0, straight = 0;
   for (let i = 0; i < T.n; i++) { const r = 1 / Math.max(1e-6, Math.abs(T.curv[i])); if (r < minR) { minR = r; minAt = i; } if (r < 45) sharp++; if (r > 250) straight++; }
   // 겹침: 떨어진 구간끼리 벽이 닿는지

@@ -391,17 +391,19 @@ export function buildWorld(T, opt = {}) {
 
   // ----- 랜드마크 자리 미리 정하기 (그 자리에는 나무·건물을 심지 않는다) -----
   const lmPlan = [];
+  // 랜드마크는 정방향 기준 위치(0~1)·방향(side) → 역방향이면 같은 자리로 바꿔 계산
+  const fIdx = f => { const i = Math.floor(f * N) % N; return T.rev ? (N - i) % N : i; }, SG = T.rev ? -1 : 1;
   for (const d of (LANDMARKS[theme] || [])) {
     if (d.over !== undefined) {
-      const i = Math.floor(d.over * N) % N, w = d.open / ARCH_GAP;
+      const i = fIdx(d.over), w = d.open / ARCH_GAP;
       lmPlan.push({ m: d.m, open: d.open, x: T.x[i], z: T.z[i], y: T.y[i] - 0.5, ry: Math.atan2(T.tx[i], T.tz[i]), r: w * 0.55 });
     } else if (d.at !== undefined) {
-      const i = Math.floor(d.at * N) % N;
+      const i = fIdx(d.at);
       const place = sd => [T.x[i] + T.nx[i] * sd * (T.hw[i] + d.off), T.z[i] + T.nz[i] * sd * (T.hw[i] + d.off)];
       // 모델 크기만큼 도로에서 떨어진 자리를 찾는다 (바깥쪽 → 반대쪽, 점점 멀리)
       const clr = d.m === 'neon' ? 5 : d.m === 'arch' ? d.h * 0.62 : 7;
       let x, z, ok = false;
-      for (const extra of [0, 14, 28, 44]) { for (const sd of [d.side, -d.side]) { const off0 = d.off; d.off = off0 + extra; [x, z] = place(sd); d.off = off0; if (!nearTrack(x, z, clr) && fits(x, z, d.h * (d.m === 'neon' ? 0.22 : 0.6))) { ok = true; break; } } if (ok) break; }
+      for (const extra of [0, 14, 28, 44]) { for (const sd of [d.side * SG, -d.side * SG]) { const off0 = d.off; d.off = off0 + extra; [x, z] = place(sd); d.off = off0; if (!nearTrack(x, z, clr) && fits(x, z, d.h * (d.m === 'neon' ? 0.22 : 0.6))) { ok = true; break; } } if (ok) break; }
       if (!ok) continue;
       lmPlan.push({ m: d.m, h: d.h, x, z, y: heightAt(x, z) - 0.4, ry: Math.atan2(T.x[i] - x, T.z[i] - z), r: d.h * (d.m === 'neon' ? 0.22 : 0.6) });
     } else lmPlan.push({ m: d.m, h: d.h, x: d.x, z: d.z, y: heightAt(d.x, d.z) - 1.5, ry: d.ry || 0, r: d.h * 0.62 });

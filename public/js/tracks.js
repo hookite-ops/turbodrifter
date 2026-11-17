@@ -126,7 +126,8 @@ export const TRACKS = [
 
 // 꼭짓점 다각형을 직선+원호로 바꿔 약 2m 간격으로 고르게 샘플링
 // 꼭짓점 = [x, z, 코너 반지름, 높이, 반폭]. 장치 위치는 {e: 변 번호, t: 0~1} 또는 {c: 코너 번호, t: 0~1}로 적는다.
-export function buildTrack(def, step = 2) {
+// rev = true: 같은 트랙을 반대 방향으로 (출발선 위치는 그대로, 장치는 같은 자리에 방향만 뒤집힘)
+export function buildTrack(def, step = 2, rev = false) {
   const V = def.pts.map(p => ({ x: p[0], z: p[1], r: p[2] || 0, y: p[3] || 0, w: p[4] || def.hw || 9 }));
   const n = V.length;
   const warn = [];
@@ -215,6 +216,10 @@ export function buildTrack(def, step = 2) {
     const X = T.x.slice(), Z = T.z.slice();
     for (let i = 0; i < N; i++) { const p = (i + N - 1) % N, q = (i + 1) % N; T.x[i] = X[i] * 0.5 + (X[p] + X[q]) * 0.25; T.z[i] = Z[i] * 0.5 + (Z[p] + Z[q]) * 0.25; }
   }
+  // 역방향: 점 순서를 뒤집는다 (i → N-i, 0번 점=출발선은 그대로)
+  const RV = i => (N - i) % N;
+  if (rev) for (const key of ['x', 'z', 'y', 'hw']) { const a = T[key].slice(); for (let i = 0; i < N; i++) T[key][i] = a[RV(i)]; }
+  T.rev = rev;
 
   // ----- 장치 위치 계산 -----
   const dOf = (spec) => {                       // 위치 지정 → 트랙 거리
@@ -226,14 +231,15 @@ export function buildTrack(def, step = 2) {
     }
     const r = cR[spec.c]; return cum[r[0]] + (cum[r[1]] - cum[r[0]]) * spec.t + (spec.m || 0);
   };
-  const iOf = spec => ((Math.round(dOf(spec) / ds) % N) + N) % N;
+  const iOfF = spec => ((Math.round(dOf(spec) / ds) % N) + N) % N;
+  const iOf = rev ? spec => RV(iOfF(spec)) : iOfF;
   T.iOf = iOf;
   T.info = { edges: eR.map((r, e) => Math.round(e === 0 ? cum[eR[0][1]] + total - cum[fLast] : cum[r[1]] - cum[r[0]])), corners: cR.map(r => Math.round(cum[r[1]] - cum[r[0]])) };
-  const range = (z) => { const i0 = iOf(z.from), i1 = iOf(z.to); return [i0, ((i1 - i0) % N + N) % N]; };
+  const range = (z) => { const i0 = iOfF(z.from), i1 = iOfF(z.to), cnt = ((i1 - i0) % N + N) % N; return [rev ? RV(i0 + cnt) : i0, cnt]; };
 
   // 점프대: 쐐기 모양으로 올라갔다가 뚝 떨어진다
   T.jumps = (def.jumps || []).map(j => {
-    const i0 = iOf(j.at), cnt = Math.max(3, Math.round((j.len || 12) / ds));
+    const cnt = Math.max(3, Math.round((j.len || 12) / ds)), f0 = iOfF(j.at), i0 = rev ? RV(f0 + cnt) : f0;   // 역방향: 같은 자리에서 반대쪽으로 오르막
     for (let q = 0; q <= cnt; q++) { const i = (i0 + q) % N; T.y[i] += (j.rise || 2.4) * Math.pow(q / cnt, 1.25); T.ramp[i] = 1; }
     return { i: i0, cnt, lip: (i0 + cnt) % N };
   });
@@ -264,19 +270,22 @@ export function buildTrack(def, step = 2) {
     T.curv[i] = da / (4 * ds); // + = 왼쪽으로 굽음
   }
   // 부스터 발판 (좌우 위치 지정 가능), 고정 장애물, 움직이는 장애물
-  T.pads = (def.pads || []).map(p => { const o = (typeof p === 'number' || p.e !== undefined || p.c !== undefined) && p.lat === undefined ? { at: p } : p; return { i: iOf(o.at), lat: o.lat || 0, len: 5 }; });
-  T.obs = (def.obs || []).map(o => { const i = iOf(o.at); return { i, s: i * ds, lat: o.lat || 0, r: o.r || 1.2, kind: o.kind || 'cone', soft: !!o.soft }; });
+  T.pads = (def.pads || []).map(p => { const o = (typeof p === 'number' || p.e !== undefined || p.c !== undefined) && p.lat === undefined ? { at: p } : p; return { i: iOf(o.at), lat: (rev ? -1 : 1) * (o.lat || 0), len: 5 }; });
+  T.obs = (def.obs || []).map(o => { const i = iOf(o.at); return { i, s: i * ds, lat: (rev ? -1 : 1) * (o.lat || 0), r: o.r || 1.2, kind: o.kind || 'cone', soft: !!o.soft }; });
   T.movers = [];
   for (const mv of (def.movers || [])) {
     if (mv.kind === 'traffic') {
       const [i0, cnt] = range(mv), len = cnt * ds;
-      for (let q = 0; q < mv.count; q++) for (const lat of mv.lanes) T.movers.push({ type: 'traffic', model: mv.model, s0: i0 * ds, len, off: (q + (lat > 0 ? 0.5 : 0)) * len / mv.count, speed: mv.speed, lat, r: mv.r || 1.6 });
+      for (let q = 0; q < mv.count; q++) for (const lat0 of mv.lanes) { const lat = rev ? -lat0 : lat0; T.movers.push({ type: 'traffic', model: mv.model, s0: i0 * ds, len, off: (q + (lat > 0 ? 0.5 : 0)) * len / mv.count, speed: mv.speed, lat, r: mv.r || 1.6 }); }
     } else {
       const i = iOf(mv.at);
       T.movers.push({ type: 'cross', model: mv.model, s: i * ds, i, a: mv.a, period: mv.period, phase: mv.phase || 0, r: mv.r || 1.1, soft: true });
     }
   }
-  T.shortcuts = (def.shortcuts || []).map((sd, k) => buildShortcut(T, sd, k));
+  // 지름길: 역방향이면 입구·출구를 맞바꾸고 꼭짓점·장애물 순서를 뒤집는다
+  const revSc = sd => ({ ...sd, from: sd.to, to: sd.from, pts: [...sd.pts].reverse(),
+    obs: (sd.obs || []).map(o => ({ ...o, at: 1 - o.at, lat: -(o.lat || 0) })), pads: (sd.pads || []).map(p => ({ ...p, at: Math.max(0, 1 - p.at - 0.1), lat: -(p.lat || 0) })) });
+  T.shortcuts = (def.shortcuts || []).map((sd, k) => buildShortcut(T, rev ? revSc(sd) : sd, k));
   return T;
 }
 
