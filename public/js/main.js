@@ -890,6 +890,12 @@ const soloCfg = Object.assign({ track: 'village', mode: 'speed', laps: 3, rivals
 if (![1, 2, 3].includes(soloCfg.laps)) soloCfg.laps = 3;   // 5바퀴를 뺀 뒤 저장값 정리
 function init() {
   buildMenu();
+  // 조작법 탭
+  for (const b of document.querySelectorAll('#help-tabs button')) b.onclick = () => {
+    sfx.click();
+    for (const x of document.querySelectorAll('#help-tabs button')) x.classList.toggle('on', x === b);
+    for (const g of document.querySelectorAll('#help .help-grid')) g.classList.toggle('hidden', g.dataset.t !== b.dataset.t);
+  };
   const soloSetup = makeSetup($('solo-setup'), soloCfg, () => store.set('td_solo', soloCfg));
   soloSetup.extra.append($('solo-rivals-lbl'), $('solo-rivals'), $('b-solo-go'));
   const paintBgm = () => { $('b-bgm').textContent = music.on ? '음악 켜짐' : '음악 꺼짐'; };
