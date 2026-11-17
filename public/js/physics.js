@@ -80,6 +80,13 @@ export function stepKart(k, inp, dt, T, rule) {
   const surf = air ? 0 : P.surf[k.sc ? k.pi : k.ti];          // 1 빙판, 2 물
   const ice = surf === 1, water = surf === 2;
   k.surf = surf;
+  // 아이템에 맞음: 조작 불가 + 급감속 (spin 바나나·미사일, bubble 물폭탄)
+  if (k.stunT > 0) {
+    k.stunT -= dt; inp = { steer: 0, accel: false, brake: false, drift: false };
+    k.boostT = 0; k.instT = 0; k.instWin = 0; k.drifting = false; k.kick = 0; k.slip = 0; k.draftB = 0;
+    k.speed *= Math.exp(-(k.stunKind === 'bubble' ? 7 : 3.4) * dt);
+  }
+  if (k.shieldT > 0) k.shieldT -= dt;
 
   // 조향 입력 (키보드는 디지털이라 아주 짧게만 다듬는다)
   const target = clamp(inp.steer || 0, -1, 1);
@@ -337,6 +344,7 @@ function bumpInto(k, T, L, ks, s, lat, r, soft, ev) {
 }
 
 function addGauge(k, g, ev, inf) {
+  if (k.noGauge) return;   // 아이템전: 드리프트로 부스터를 모으지 않는다
   if (k.boosts >= 2) { k.gauge = Math.min(1, k.gauge + g); return; }
   k.gauge += g;
   if (k.gauge >= 1) { k.gauge = k.boosts + 1 >= 2 ? 0 : k.gauge - 1; k.boosts++; ev.charged = true; }

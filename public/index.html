@@ -191,6 +191,7 @@ svg{display:block}
 .slot svg{width:62%;height:62%;fill:rgba(255,255,255,.16);transform:skewX(calc(var(--sk) * -1))}
 .slot.on{background:linear-gradient(180deg,#7fe0ff,#1883e6);border-color:#fff;box-shadow:0 0 18px rgba(41,182,255,.9);animation:pop .28s cubic-bezier(.2,1.7,.4,1)}
 .slot.on svg{fill:#fff}
+.h-gauge.items .bar{display:none} .slot.it{background:rgba(255,255,255,.92);border-color:#fff;animation:pop .28s cubic-bezier(.2,1.7,.4,1)} .slot.it svg{width:78%;height:78%} .slot.it + .slot.it{opacity:.85} body.kb .slot.it kbd{display:block}
 .slot kbd{position:absolute;right:-.5em;bottom:-.75em;font-family:var(--body);font-weight:700;font-size:calc(var(--u)*1.25);background:var(--white);color:var(--ink);border-radius:3px;padding:0 .4em;display:none;transform:skewX(calc(var(--sk) * -1))}
 @keyframes pop{0%{transform:skewX(var(--sk)) scale(1.6)}100%{transform:skewX(var(--sk)) scale(1)}}
 .bar{position:relative;border-radius:4px;background:rgba(20,22,31,.74);border:3px solid rgba(255,255,255,.45);overflow:hidden;transform:skewX(-16deg)}
@@ -369,7 +370,7 @@ body:not(.kb) .h-tip{top:48%}
   </div>
   <div class="m-util"><button class="btn ghost" id="b-help">조작법</button><button class="btn ghost" id="b-hq">그림자 켜짐</button><button class="btn ghost" id="b-bgm">음악 켜짐</button></div>
 </section>
-<div class="ver hidden" id="ver">v3.7</div>
+<div class="ver hidden" id="ver">v3.8</div>
 
 <!-- 온라인 로비 -->
 <section id="online" class="screen scrim hidden">
@@ -446,6 +447,7 @@ body:not(.kb) .h-tip{top:48%}
     <div class="help-grid hidden" data-t="mode">
       <b>스피드전</b><span>드리프트로 게이지를 모아 부스터로 달리는 기본 경주. 벽에 세게 박으면 모으던 게이지를 잃는다.</span>
       <b>무한 부스터전</b><span>게이지가 저절로 차고(부스터 중에도), 출발·순간 부스터와 드래프트 때 더 찬다. 벽에 박아도 게이지를 잃지 않는다.</span>
+      <b>아이템전</b><span>드리프트로는 부스터가 안 모인다. 트랙의 무지개 상자를 지나면 아이템을 얻고(최대 2개) <kbd>Ctrl</kbd>로 쓴다. 뒤에 있을수록 추격 아이템이 잘 나온다.<br>부스터 · 바나나(뒤에 깔기, 밟으면 빙글) · 방어막(공격 1번 막기) · 물폭탄(앞으로 던져 물방울에 가두기) · 미사일(바로 앞 카트 추적) · 자석(앞 카트에 끌려가며 가속)</span>
       <b>완주</b><span>1등이 들어오면 10초 뒤 경기가 끝난다. 그 안에 못 들어오면 리타이어.</span>
       <b>타임어택</b><span>혼자 달리기에서 상대를 "타임어택"으로 고르면 내 최고 기록의 고스트(반투명 카트)와 달린다. 바퀴마다 기록과의 차이가 파랑(빠름)·빨강(느림)으로 뜬다.</span>
       <b>온라인</b><span>방을 만들고 코드를 친구에게 알려준다. 연결이 끊겨도 20초 안이면 같은 방·경기로 돌아온다.</span>

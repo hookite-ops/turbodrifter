@@ -6,6 +6,7 @@ import { buildWorld, preloadLandmarks } from './world.js';
 import { loadKartAsset, makeKart, poseKart, makeTag, setKartShadow, CHARS, COLORS, KARTS } from './kartmodel.js';
 import { makeFx } from './fx.js';
 import { sfx, music } from './audio.js';
+import { makeItems, ITEM_NAME, ITEM_SVG } from './items.js';
 import { LICENSES, GOAL_NAME, loadLic, licDone, licOpen, licBest, licState, licEvent, licCheck, licGoalMet, licRows } from './license.js';
 
 const $ = id => document.getElementById(id);
@@ -249,11 +250,11 @@ function drawTrack(cv, T, lw = 7, bg = null) {
 const THEME_BG = { village: '#4faa3c', desert: '#d9a658', ice: '#a9d8f2', city: '#2a2152' };
 
 // ---------------- 경기 설정 UI (방·혼자 공용) ----------------
-function makeSetup(el, cfg, onChange) {
+function makeSetup(el, cfg, onChange, opts = {}) {
   el.className = 'setup';
   el.innerHTML = `<div class="tracks"></div>
     <div class="su-right"><h3 class="su-name"></h3><div class="su-meta"><span class="lv"></span><span class="len"></span><span class="rec"></span></div><p class="desc"></p>
-    <div class="lbl">모드</div><div class="seg" data-k="mode"><button data-v="speed">스피드전</button><button data-v="infinite">무한 부스터전</button></div>
+    <div class="lbl">모드</div><div class="seg" data-k="mode"><button data-v="speed">스피드전</button><button data-v="infinite">무한 부스터전</button>${opts.item ? '<button data-v="item">아이템전</button>' : ''}</div>
     <div class="lbl">바퀴 수</div><div class="seg" data-k="laps"><button data-v="1">1바퀴</button><button data-v="2">2바퀴</button><button data-v="3">3바퀴</button></div>
     <div class="lbl">방향</div><div class="seg" data-k="rev"><button data-v="0">정방향</button><button data-v="1">역방향</button></div>
     <div class="su-extra"></div></div>`;
@@ -435,7 +436,7 @@ function startRace(cfg) {
   while (scene.children.length) scene.remove(scene.children[0]);
   scene.add(world.group); scene.fog = world.fog; scene.background = new THREE.Color(world.theme.hor);
   const R = race = {
-    cfg, T, world, scene, fx: makeFx(scene, camera), rule: { infinite: cfg.mode === 'infinite' }, laps: cfg.laps, online: !!cfg.online,
+    cfg, T, world, scene, fx: makeFx(scene, camera), rule: { infinite: cfg.mode === 'infinite', item: cfg.mode === 'item' }, laps: cfg.laps, online: !!cfg.online,
     karts: [], byId: new Map(), me: null, phase: 'countdown', startPerf: 0, time: 0, acc: 0, endAt: 0, firstFin: false,
     lastCount: 9, startTap: -1e9, startUsed: false, sendT: 0, hudT: 0, camA: 0, camY: 0, shake: 0, boostAmt: 0, finT: 0, tipT: 0, msgT: 0, subT: 0, resetCd: 0, order: [], mini: null, done: false,
   };
@@ -474,6 +475,11 @@ function startRace(cfg) {
     }
   }
   R.autoBot = createBot(0.7);
+  // 아이템전
+  R.items = R.rule.item ? makeItems(R, scene) : null;
+  if (R.items) for (const e of R.karts) e.k.noGauge = true;
+  document.querySelector('.h-gauge').classList.toggle('items', !!R.items); hudCache.items = '';
+  $('t-boost').textContent = R.items ? '아이템' : '부스터';
   // HUD 준비
   $('h-laps').textContent = R.laps; $('h-best').textContent = R.rec ? '기록 ' + fmt(R.rec.total) : ''; $('h-of').textContent = '/' + R.karts.length;
   R.miniBase = document.createElement('canvas'); R.miniBase.width = R.miniBase.height = 220; R.miniMap = drawTrack(R.miniBase, T, 9);
@@ -484,8 +490,8 @@ function startRace(cfg) {
   paused = false; screen = 'race';
   document.body.classList.add('racing'); splitOn = true; resize();
   sfx.startRace(); music.play(R.laps <= 1 ? T.def.theme + '_final' : T.def.theme, 0.6); music.preload(T.def.theme + '_final');
-  $('h-tip').innerHTML = usingTouch ? '<span>방향 + 드리프트 → 게이지가 차면 부스터</span>'
-    : '<span><kbd>←</kbd><kbd>→</kbd> 방향</span><span><kbd>↑</kbd> 가속</span><span><kbd>Shift</kbd> 드리프트</span><span><kbd>Ctrl</kbd> 부스터</span>';
+  $('h-tip').innerHTML = usingTouch ? (R.items ? '<span>무지개 상자를 지나 아이템을 얻고 아이템 버튼으로 쓰기</span>' : '<span>방향 + 드리프트 → 게이지가 차면 부스터</span>')
+    : `<span><kbd>←</kbd><kbd>→</kbd> 방향</span><span><kbd>↑</kbd> 가속</span><span><kbd>Shift</kbd> 드리프트</span><span><kbd>Ctrl</kbd> ${R.items ? '아이템' : '부스터'}</span>`;
   $('h-tip').classList.remove('hidden'); R.tipT = 11;
   if (usingTouch) { // 전체 화면 + 가로 고정 시도 (안 되면 그냥 진행)
     try { const p = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen({ navigationUI: 'hide' }); if (p && p.then) p.then(() => { try { screen_.orientation.lock('landscape').catch(() => {}); } catch (e) {} }).catch(() => {}); } catch (e) {}
@@ -497,7 +503,8 @@ function endRace() {
   if (!race) return;
   const R = race; race = null;
   sfx.stopRace();
-  R.fx.dispose(); scene.remove(R.world.group); R.world.dispose();
+  R.fx.dispose(); scene.remove(R.world.group); R.world.dispose(); if (R.items) R.items.dispose();
+  for (let i = 0; i < 2; i++) { const sl = $('slot' + i); if (sl._svg) { sl.innerHTML = sl._svg; sl._svg = null; } sl.classList.remove('it'); }
   for (const k of R.karts) scene.remove(k.model.group);
   if (R.ghost) scene.remove(R.ghost.model.group);
   $('hud').classList.add('hidden'); $('touch').classList.add('hidden'); $('boostfx').style.opacity = 0;
@@ -646,12 +653,15 @@ function updateRace(dt, now) {
         inp = { steer, accel: usingTouch ? !key.brake : key.accel, brake: key.brake, drift: key.drift, driftTap: first && tap.drift, boostTap: first && tap.boost, accelTap: first && tap.accel };
         if (first && !R.startUsed && t < 0.36 && (tap.accel || tap.boost)) { startBoost(k, R.rule.infinite); R.startUsed = true; inp.boostTap = false; boostFx(R, k); flashSub('출발 부스터!', 'inst'); }
       }
+      if (R.items && inp.boostTap) { inp.boostTap = false; if (!me.finished) R.items.use(me); }
+      if (R.items && window.__tdAuto && !me.finished) R.items.botThink(me, 0.8);
       stepKart(k, inp, H, T, R.rule);
       handleEvents(R, me, k.ev);
       for (const e of R.karts) {
         if (e.bot && !e.finished) { stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule); if (e.k.ev.lap !== undefined) botLap(R, e); }
         else if (e.bot) stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule);
       }
+      if (R.items) { for (const e of R.karts) if (e.bot && !e.finished) R.items.botThink(e, e.bot.skill); R.items.update(H, R.rule.time); }
       // 드래프트: 앞 카트 3~22m 뒤, 좌우 2.4m 안에서 1.5초 따라가면 순간 가속
       for (const a of R.karts) {
         if (a.remote) continue;
@@ -740,6 +750,7 @@ function updateRace(dt, now) {
       const q = e.k; s = { x: q.x, y: q.y, z: q.z, h: q.h, speed: q.speed, steer: q.steer, slip: q.slip, drifting: q.drifting, boost: q.boostT > 0 || q.padT > 0 ? 2 : q.instT > 0 ? 1 : 0, slope: q.air ? clamp(q.vy / Math.max(8, q.speed), -0.55, 0.55) : (q._loc.slope || 0) };
     }
     poseKart(e.model, s, dt, tt);
+    if (R.items) R.items.pose(e, dt, tt);
     if (simulate) {
       R.fx.kart(e.fx, s, dt, e.me ? k.gauge : 0.3);
       if (!e.me && s.boost === 2 && e.fx.wasBoost !== 2) R.fx.ring(s.x, s.y, s.z, s.h);   // 다른 카트의 부스터 발동
@@ -750,6 +761,7 @@ function updateRace(dt, now) {
   if (simulate && (k.draftT > 0.15 || k.draftB > 0)) { R.draftAcc = (R.draftAcc || 0) + dt; if (R.draftAcc > 0.05) { R.draftAcc = 0; R.fx.streakAt && R.fx.streakAt(k, k.draftB > 0); } }
   // 물 튀김
   if (simulate) for (const e of R.karts) { const q = e.k; if (!e.remote && q.surf === 2 && Math.abs(q.speed) > 5 && Math.random() < dt * 30) R.fx.splash(q.x, q.y, q.z, q.mv, q.speed); }
+  if (R.items) itemFx(R);
   tickEmotes(R, dt);
   R.fx.update(simulate ? dt : 0, viewH, camera.fov);
   R.world.update(tt, k.x, k.z, R.rule.time || 0);
@@ -813,7 +825,13 @@ function updateRace(dt, now) {
   $('h-speedbox').classList.toggle('boost', boosting);
   { const g = Math.round(clamp(k.gauge, 0, 1) * 200) / 200; if (hudCache.gauge !== g) { hudCache.gauge = g; $('bar-i').style.transform = `scaleX(${g})`; } }
   $('bar').classList.toggle('full', k.boosts >= 2 && k.gauge >= 1);
-  $('slot0').classList.toggle('on', k.boosts >= 1); $('slot1').classList.toggle('on', k.boosts >= 2);
+  if (R.items) {
+    const key_ = (me.items || []).join(',');
+    if (hudCache.items !== key_) {
+      hudCache.items = key_;
+      for (let i = 0; i < 2; i++) { const sl = $('slot' + i), id = (me.items || [])[i]; if (!sl._svg) sl._svg = sl.innerHTML; sl.innerHTML = id ? ITEM_SVG[id] + (i === 0 ? '<kbd>Ctrl</kbd>' : '') : sl._svg; sl.classList.toggle('it', !!id); sl.classList.remove('on'); }
+    }
+  } else { $('slot0').classList.toggle('on', k.boosts >= 1); $('slot1').classList.toggle('on', k.boosts >= 2); }
   $('t-boost').classList.toggle('ready', k.boosts > 0 && k.instWin <= 0); $('t-boost').classList.toggle('inst', k.instWin > 0 && !me.finished);
   setText('h-rank', String(myRank)); setText('h-of', '/' + R.karts.length);
   setText('h-lap', String(clamp(k.lap + 1, 1, R.laps)));
@@ -857,6 +875,26 @@ function boostFx(R, k) {
   sfx.boost(); R.fx.ring(k.x, k.y, k.z, k.h); R.fx.ring(k.x, k.y, k.z, k.h, 0xffffff, 0.6);
   const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
 }
+// 아이템 소리·효과·메시지
+function itemFx(R) {
+  const q = R.items.sfxQ, me = R.me;
+  while (q.length) {
+    const a = q.shift(), mine = a.e === me, k = a.e && a.e.k;
+    if (a.type === 'get' && mine) { sfx.tone(880, 0.06, 'triangle', 0.08); setTimeout(() => sfx.tone(1320, 0.08, 'triangle', 0.07), 60); }
+    else if (a.type === 'use') {
+      if (a.id === 'boost' || a.id === 'magnet') { if (mine) boostFx(R, k); else R.fx.ring(k.x, k.y, k.z, k.h); }
+      if (mine) { if (a.id === 'shield') sfx.tone(520, 0.2, 'sine', 0.08); else if (a.id !== 'boost') sfx.tone(300, 0.12, 'square', 0.05); if (a.id === 'magnet') flashSub('자석!', 'inst'); }
+    } else if (a.type === 'hit') {
+      if (mine) { sfx.hit(14); R.shake = 0.3; flashSub(a.kind === 'banana' ? '바나나에 미끄러졌어요' : a.kind === 'missile' ? '미사일에 맞았어요' : '물방울에 갇혔어요', 'warn'); }
+      else if (R.me && Math.hypot(k.x - R.me.k.x, k.z - R.me.k.z) < 40) sfx.hit(5);
+      if (a.kind === 'water') R.fx.burst(k.x, k.y + 0.6, k.z, 12, 0.5, 0.8, 1); else R.fx.burst(k.x, k.y + 0.6, k.z, 12, 1, 0.85, 0.3);
+    } else if (a.type === 'block') { R.fx.ring(k.x, k.y, k.z, k.h, 0x7fe3ff, 0.8); if (mine) { sfx.tone(980, 0.15, 'sine', 0.08); flashSub('방어!', 'inst'); } }
+    else if (a.type === 'splash') { R.fx.splash(a.x, a.y, a.z, 0, 8, 22); }
+    else if (a.type === 'boom') { R.fx.burst(a.x, a.y + 0.8, a.z, 22, 1, 0.5, 0.2); sfx.noise(0.4, 900, 200, 0.3); }
+    else if (a.type === 'trail') R.fx.dust(a.x, a.y, a.z, 1);
+  }
+}
+
 function handleEvents(R, me, ev) {
   const k = me.k;
   if (R.lic && !me.finished && !R.lic.fail) licEvent(R.lic, ev, k);
@@ -1008,7 +1046,7 @@ function init() {
     for (const x of document.querySelectorAll('#help-tabs button')) x.classList.toggle('on', x === b);
     for (const g of document.querySelectorAll('#help .help-grid')) g.classList.toggle('hidden', g.dataset.t !== b.dataset.t);
   };
-  const soloSetup = makeSetup($('solo-setup'), soloCfg, () => store.set('td_solo', soloCfg));
+  const soloSetup = makeSetup($('solo-setup'), soloCfg, () => store.set('td_solo', soloCfg), { item: true });
   soloSetup.extra.append($('solo-rivals-lbl'), $('solo-rivals'), $('b-solo-go'));
   const paintBgm = () => { $('b-bgm').textContent = music.on ? '음악 켜짐' : '음악 꺼짐'; };
   $('b-bgm').onclick = () => { music.setOn(!music.on); sfx.click(); paintBgm(); }; paintBgm();
