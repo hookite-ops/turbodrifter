@@ -23,8 +23,8 @@ export const TRACKS = [
     jumps: [{ at: { e: 7, t: 0.1 }, len: 10, rise: 2.0 }],
     obs: [
       { at: { c: 5, t: 0 }, lat: 0, r: 4.2, kind: 'island' },
-      { at: { e: 3, t: 0.28 }, lat: -4.7, r: 1.5, kind: 'hay', soft: true }, { at: { e: 3, t: 0.28 }, lat: -1.9, r: 1.5, kind: 'hay', soft: true },
-      { at: { e: 3, t: 0.72 }, lat: 4.7, r: 1.5, kind: 'hay', soft: true }, { at: { e: 3, t: 0.72 }, lat: 1.9, r: 1.5, kind: 'hay', soft: true },
+      { at: { e: 3, t: 0.28 }, lat: -4.7, r: 1.5, kind: 'hay', soft: true }, { at: { e: 3, t: 0.28 }, lat: -1.6, r: 1.5, kind: 'hay', soft: true },
+      { at: { e: 3, t: 0.72 }, lat: 4.7, r: 1.5, kind: 'hay', soft: true }, { at: { e: 3, t: 0.72 }, lat: 1.6, r: 1.5, kind: 'hay', soft: true },
     ],
   },
   {

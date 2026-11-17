@@ -152,6 +152,17 @@ export function buildWorld(T, opt = {}) {
     }
     return false;
   };
+  // ----- 점유 지도: 놓인 물체마다 바닥 원(x, z, r)을 등록하고, 새 물체는 빈자리에만 놓는다 -----
+  const OC = 16, occ = new Map(), foot = []; let maxR = 0;
+  const fits = (x, z, r) => {
+    const gx = Math.floor(x / OC), gz = Math.floor(z / OC), rr = Math.ceil((r + maxR) / OC);
+    for (let a = -rr; a <= rr; a++) for (let b = -rr; b <= rr; b++) {
+      const l = occ.get((gx + a) + ',' + (gz + b)); if (!l) continue;
+      for (const o of l) if (Math.hypot(o.x - x, o.z - z) < o.r + r) return false;
+    }
+    return true;
+  };
+  const take = (x, z, r, kind = '') => { const o = { x, z, r, kind }; if (r > maxR) maxR = r; const k = Math.floor(x / OC) + ',' + Math.floor(z / OC); (occ.get(k) || occ.set(k, []).get(k)).push(o); foot.push(o); return o; };
   // 도로 가장자리까지의 거리와, 그 근처 도로의 높이(겹치는 곳은 낮은 쪽)
   const cd = [], cy = [];
   const trackInfo = (x, z) => {
@@ -368,7 +379,8 @@ export function buildWorld(T, opt = {}) {
   const zones = lmPlan.map(l => ({ x: l.x, z: l.z, r: l.r }));
   // 터널 안·근처에는 구조물(배너·가로등·광고판)을 세우지 않는다
   const inTun = new Uint8Array(N); for (let i = 0; i < N; i++) if (T.tunnel[i]) for (let o = -12; o <= 12; o++) inTun[(i + o + N) % N] = 1;
-  const blocked = (x, z) => zones.some(l => Math.hypot(l.x - x, l.z - z) < l.r);
+  for (const l of zones) take(l.x, l.z, Math.max(4, l.r), 'landmark');
+  const blocked = (x, z, r = 0) => !fits(x, z, r);
 
   // ----- 출발 게이트 + 관중석 -----
   const startLights = [];
@@ -403,8 +415,15 @@ export function buildWorld(T, opt = {}) {
     crowdTex.repeat.set(3, 1);
     const crowdM = basic({ map: crowdTex }), standM = lam({ color: '#d9dde6' }), roofM = lam({ color: th.night ? '#3a2a6e' : '#2f8fff', side: THREE.DoubleSide });
     for (const s of [1, -1]) {
-      const i = Math.floor(N * 0.006) % N, st = new THREE.Group(), off = T.hw[i] + 7;
-      const px = T.x[i] + T.nx[i] * s * off, pz = T.z[i] + T.nz[i] * s * off;
+      // 빈자리가 나올 때까지 출발선 뒤쪽으로 물러난다 (랜드마크·다른 물체와 겹치지 않게)
+      const standAt = (i) => { const off = T.hw[i] + 7, px = T.x[i] + T.nx[i] * s * off, pz = T.z[i] + T.nz[i] * s * off, ry = dirAt(i) + (s > 0 ? -Math.PI / 2 : Math.PI / 2);
+        const fx = Math.cos(ry), fz = -Math.sin(ry), bx = -Math.sin(ry), bz = -Math.cos(ry);
+        const cs = [-16.5, -5.5, 5.5, 16.5].map(q => [px + fx * q + bx * 5, pz + fz * q + bz * 5]);
+        return { px, pz, cs, ok: cs.every(([x, z]) => fits(x, z, 5.5) && !nearTrack(x, z, 5.4)) }; };
+      let i = Math.floor(N * 0.006) % N, sa = standAt(i);
+      for (let back = 1; back < 30 && !sa.ok; back++) { i = (Math.floor(N * 0.006) - back * 3 + N) % N; sa = standAt(i); }
+      if (!sa.ok) continue;
+      const st = new THREE.Group(), px = sa.px, pz = sa.pz;
       st.position.set(px, Math.max(T.y[i], heightAt(px, pz)) - 0.3, pz); st.rotation.y = dirAt(i) + (s > 0 ? -Math.PI / 2 : Math.PI / 2);
       const LEN = 44;
       for (let r = 0; r < 5; r++) {
@@ -413,7 +432,8 @@ export function buildWorld(T, opt = {}) {
       }
       const roof = new THREE.Mesh(box, roofM); roof.scale.set(LEN + 2, 0.3, 13); roof.position.set(0, 10.2, -4.6); roof.rotation.x = 0.1; roof.castShadow = hq; st.add(roof);
       for (const q of [-LEN / 2, 0, LEN / 2]) { const pl = new THREE.Mesh(box, standM); pl.scale.set(0.5, 10.5, 0.5); pl.position.set(q, 5.2, -10.4); st.add(pl); }
-      g.add(st); zones.push({ x: px, z: pz, r: 26 });
+      g.add(st);
+      for (const [x, z] of sa.cs) take(x, z, 5.5, 'stand');   // 관중석은 길쭉하므로 길이를 따라 원 4개로 등록
     }
   }
 
@@ -425,7 +445,8 @@ export function buildWorld(T, opt = {}) {
     for (let i = 20; i < N - 20; i += 4) {
       if ((i - lastAd) * T.ds < 85 || Math.abs(T.curv[i]) > 0.006 || gap[i] > 3 || inTun[i] || T.cliff[i] > 0.2) continue;
       const off = T.hw[i] + 4.5, x = T.x[i] + T.nx[i] * side * off, z = T.z[i] + T.nz[i] * side * off;
-      if (nearTrack(x, z, 3.5, i, 30) || blocked(x, z)) { side = -side; continue; }
+      if (nearTrack(x, z, 3.5, i, 30) || blocked(x, z, 5.6)) { side = -side; continue; }
+      take(x, z, 5.6, 'ad');
       const yb = Math.max(T.y[i], heightAt(x, z)), ry = dirAt(i) + Math.PI + side * 0.5, W = 10, H = 4.4, cxr = Math.cos(ry), sxr = Math.sin(ry);
       const a = [x - cxr * W / 2, z + sxr * W / 2], b = [x + cxr * W / 2, z - sxr * W / 2], v = adN % ADS.length;
       (adGeo[v] = adGeo[v] || { pos: [], uv: [], idx: [] });
@@ -459,7 +480,8 @@ export function buildWorld(T, opt = {}) {
       const i = Math.floor(N * q / steps), hw = T.hw[i];
       if (nearTrack(T.x[i], T.z[i], 6, i, 40) || inTun[i] || T.ramp[i] || T.hw[i] > 10.5) continue;
       const ry = dirAt(i);
-      for (const s of [1, -1]) gant.push({ x: T.x[i] + T.nx[i] * s * (hw + 1.2), z: T.z[i] + T.nz[i] * s * (hw + 1.2), y: T.y[i] + 4, sx: 0.5, sy: 8, sz: 0.5, ry, c: th.night ? '#ff3fa4' : '#f6f3ea' });
+      if ([1, -1].some(s => blocked(T.x[i] + T.nx[i] * s * (hw + 1.2), T.z[i] + T.nz[i] * s * (hw + 1.2), 0.6))) continue;
+      for (const s of [1, -1]) { gant.push({ x: T.x[i] + T.nx[i] * s * (hw + 1.2), z: T.z[i] + T.nz[i] * s * (hw + 1.2), y: T.y[i] + 4, sx: 0.5, sy: 8, sz: 0.5, ry, c: th.night ? '#ff3fa4' : '#f6f3ea' }); take(T.x[i] + T.nx[i] * s * (hw + 1.2), T.z[i] + T.nz[i] * s * (hw + 1.2), 0.6, 'post'); }
       gant.push({ x: T.x[i], z: T.z[i], y: T.y[i] + 8.1, sx: 0.3, sy: 0.3, sz: hw * 2 + 3, ry: ry + Math.PI / 2, c: '#20232e' });
       const pg = new THREE.PlaneGeometry(hw * 2 + 2.4, 1.6); const fm = new THREE.Mesh(pg, flagM); fm.position.set(T.x[i], T.y[i] + 7.2, T.z[i]); fm.rotation.y = ry; g.add(fm); disposables.push(pg);
     }
@@ -477,7 +499,8 @@ export function buildWorld(T, opt = {}) {
     const lp = [], bulbs = [], arm = [];
     for (let i = 7; i < N; i += 16) {
       const s = (i / 16 | 0) % 2 ? 1 : -1, x = T.x[i] + T.nx[i] * s * (T.hw[i] + 1.5), z = T.z[i] + T.nz[i] * s * (T.hw[i] + 1.5);
-      if (nearTrack(x, z, 0.8, i, 24) || gap[i] > 3 || inTun[i]) continue;
+      if (nearTrack(x, z, 0.8, i, 24) || gap[i] > 3 || inTun[i] || blocked(x, z, 1.6)) continue;
+      take(x, z, 1.6, 'lamp');
       lp.push({ x, z, y: T.y[i] + 3.6, sx: 0.16, sy: 7.2, sz: 0.16, c: th.night ? '#3a3d55' : '#6b7280' });
       arm.push({ x: x - T.nx[i] * s * 0.7, z: z - T.nz[i] * s * 0.7, y: T.y[i] + 7.1, sx: 1.6, sy: 0.12, sz: 0.12, ry: dirAt(i), c: th.night ? '#3a3d55' : '#6b7280' });
       bulbs.push({ x: x - T.nx[i] * s * 1.4, z: z - T.nz[i] * s * 1.4, y: T.y[i] + 6.95, s: 0.34 });
@@ -486,75 +509,99 @@ export function buildWorld(T, opt = {}) {
   }
 
   // ----- 배경 소품 -----
-  const spots = (count, margin, pad = 110, maxEdge = 1e9) => {
+  // rf: 물체 하나의 크기를 정하는 함수 → { r: 바닥 반지름, ...그 밖의 크기 값 }. 정해진 크기만큼 빈자리를 찾아 등록한다
+  const spots = (count, margin, pad = 110, maxEdge = 1e9, rf = () => ({ r: 1 }), kind = '') => {
     const out = []; let tries = 0;
     while (out.length < count && tries++ < count * 40) {
+      const sz = rf(), r = sz.r;
       const x = minX - pad + R() * (maxX - minX + pad * 2), z = minZ - pad + R() * (maxZ - minZ + pad * 2);
-      if (nearTrack(x, z, margin) || blocked(x, z)) continue;
+      if (nearTrack(x, z, Math.max(margin, r + 1.2)) || !fits(x, z, r)) continue;
       if (maxEdge < 1e8 && !nearTrack(x, z, maxEdge)) continue;
-      out.push({ x, z, y: heightAt(x, z) });
+      take(x, z, r, kind);
+      out.push({ x, z, y: heightAt(x, z), ...sz });
     }
     return out;
   };
   const blob0 = new THREE.IcosahedronGeometry(1, 0); disposables.push(blob0);
   const cone = new THREE.ConeGeometry(1, 1, 7), cyl = new THREE.CylinderGeometry(1, 1, 1, 7), sph = new THREE.SphereGeometry(1, 10, 8), blob = new THREE.IcosahedronGeometry(1, 1), roofG = new THREE.ConeGeometry(1, 1, 4);
   disposables.push(cone, cyl, sph, blob, roofG);
-  const add = (geo, items, mat = matSolid, shadow = hq) => { if (items.length) g.add(instanced(geo, mat, items, shadow)); };
+  const add = (geo, items, mat = matSolid, shadow = hq, multi = false) => { if (items.length) { const m = instanced(geo, mat, items, shadow); m.userData.multi = multi; g.add(m); } };
   const pick = a => a[Math.floor(R() * a.length)];
 
+  // 큰 물체부터 자리를 잡는다 (집·메사·빌딩 → 나무 → 작은 소품). 각 물체는 실제 크기만큼의 바닥 원을 차지한다
   if (theme === 'village') {
-    const trunks = [], crowns = [], l1 = [], l2 = [];
-    for (const p of [...spots(170, 5), ...spots(110, 3.5, 30, 26)]) {
-      const s = 0.8 + R() * 0.9;
-      if (R() < 0.6) { // 둥근 나무
-        const col = pick(['#3f9d3a', '#4fb548', '#2f8a3c', '#63bf4f', '#7fca5a']);
-        trunks.push({ ...p, y: p.y + 1.4 * s, sx: 0.32 * s, sy: 2.8 * s, sz: 0.32 * s, c: '#8a5a34' });
-        crowns.push({ ...p, y: p.y + 4.4 * s, sx: 2.5 * s, sy: 2.3 * s, sz: 2.5 * s, ry: R() * 6, c: col }, { x: p.x + 1.2 * s, z: p.z + 0.5 * s, y: p.y + 3.6 * s, s: 1.5 * s, ry: R() * 6, c: col }, { x: p.x - 1.0 * s, z: p.z - 0.8 * s, y: p.y + 5.2 * s, s: 1.4 * s, ry: R() * 6, c: col });
-      } else {
-        const col = pick(['#2f8a3c', '#3a9a48', '#2a7a40']);
-        trunks.push({ ...p, y: p.y + 1.0 * s, sx: 0.3 * s, sy: 2 * s, sz: 0.3 * s, c: '#7a5030' });
-        l1.push({ ...p, y: p.y + 3.9 * s, sx: 2.3 * s, sy: 4.4 * s, sz: 2.3 * s, c: col }); l2.push({ ...p, y: p.y + 6.3 * s, sx: 1.6 * s, sy: 3.3 * s, sz: 1.6 * s, c: col });
-      }
-    }
-    add(cyl, trunks); add(blob, crowns); add(cone, [...l1, ...l2]);
     const houseTex = canvasTex(128, 64, (c, w, h) => { c.fillStyle = '#fff'; c.fillRect(0, 0, w, h); c.fillStyle = 'rgba(0,0,0,0.08)'; c.fillRect(0, h - 8, w, 8); for (const x of [14, 82]) { c.fillStyle = '#6fb6ff'; c.fillRect(x, 18, 22, 20); c.strokeStyle = '#fff'; c.lineWidth = 3; c.strokeRect(x, 18, 22, 20); c.beginPath(); c.moveTo(x + 11, 18); c.lineTo(x + 11, 38); c.stroke(); } c.fillStyle = '#8a5a34'; c.fillRect(52, 30, 16, 34); });
     const walls = [], roofs = [], chim = [];
-    for (const p of spots(48, 11)) { const w = 7 + R() * 5, h = 4.5 + R() * 2.5, ry = Math.floor(R() * 4) * Math.PI / 2 + (R() - 0.5) * 0.4; walls.push({ ...p, y: p.y + h / 2 - 0.6, sx: w, sy: h + 1.2, sz: w * 0.85, ry, c: pick(['#fff1d6', '#ffe0c2', '#e9f4ff', '#fff7ea', '#f6d9d0']) }); roofs.push({ ...p, y: p.y + h + 1.7, sx: w * 0.84, sy: 3.6, sz: w * 0.84, ry: ry + Math.PI / 4, c: pick(['#e8503f', '#3a8fe8', '#f2a52e', '#7a54e0', '#3fa66b']) }); chim.push({ x: p.x + 1.5, z: p.z + 1, y: p.y + h + 2, sx: 0.9, sy: 3, sz: 0.9, c: '#b0553f' }); }
+    for (const p of spots(48, 11, 110, 1e9, () => { const w = 7 + R() * 5; return { r: w * 0.9, w }; }, 'house')) {
+      const w = p.w, h = 4.5 + R() * 2.5, ry = Math.floor(R() * 4) * Math.PI / 2 + (R() - 0.5) * 0.4;
+      walls.push({ x: p.x, z: p.z, y: p.y + h / 2 - 0.6, sx: w, sy: h + 1.2, sz: w * 0.85, ry, c: pick(['#fff1d6', '#ffe0c2', '#e9f4ff', '#fff7ea', '#f6d9d0']) });
+      roofs.push({ x: p.x, z: p.z, y: p.y + h + 1.7, sx: w * 0.84, sy: 3.6, sz: w * 0.84, ry: ry + Math.PI / 4, c: pick(['#e8503f', '#3a8fe8', '#f2a52e', '#7a54e0', '#3fa66b']) });
+      chim.push({ x: p.x + Math.cos(ry) * w * 0.22, z: p.z - Math.sin(ry) * w * 0.22, y: p.y + h + 2, sx: 0.9, sy: 3, sz: 0.9, ry, c: '#b0553f' });
+    }
     add(box, walls, lam({ map: houseTex })); add(roofG, roofs); add(box, chim);
-    const bush = [], flw = [], hay = [];
-    for (const p of spots(260, 1.6, 20, 16)) { const s = 0.5 + R() * 0.9; bush.push({ ...p, y: p.y + s * 0.45, sx: s * 1.2, sy: s * 0.8, sz: s * 1.1, ry: R() * 6, c: pick(['#3f9d3a', '#55b34a', '#2f8a3c']) }); if (R() < 0.5) flw.push({ x: p.x + 1.2, z: p.z + 0.6, y: p.y + 0.25, s: 0.22, c: pick(['#ff6fb1', '#ffd21e', '#ffffff', '#ff8a3c']) }, { x: p.x - 0.8, z: p.z + 1.1, y: p.y + 0.25, s: 0.2, c: pick(['#ff6fb1', '#ffd21e', '#ffffff']) }); }
+    const trunks = [], crowns = [], l1 = [], l2 = [];
+    const treeSize = () => { const s = 0.8 + R() * 0.9, round = R() < 0.6; return { s, round, r: (round ? 2.8 : 2.35) * s }; };
+    for (const p of [...spots(170, 5, 110, 1e9, treeSize, 'tree'), ...spots(110, 3.5, 30, 26, treeSize, 'tree')]) {
+      const s = p.s;
+      if (p.round) { // 둥근 나무
+        const col = pick(['#3f9d3a', '#4fb548', '#2f8a3c', '#63bf4f', '#7fca5a']);
+        trunks.push({ x: p.x, z: p.z, y: p.y + 1.4 * s, sx: 0.32 * s, sy: 2.8 * s, sz: 0.32 * s, c: '#8a5a34' });
+        crowns.push({ x: p.x, z: p.z, y: p.y + 4.4 * s, sx: 2.5 * s, sy: 2.3 * s, sz: 2.5 * s, ry: R() * 6, c: col }, { x: p.x + 1.2 * s, z: p.z + 0.5 * s, y: p.y + 3.6 * s, s: 1.5 * s, ry: R() * 6, c: col }, { x: p.x - 1.0 * s, z: p.z - 0.8 * s, y: p.y + 5.2 * s, s: 1.4 * s, ry: R() * 6, c: col });
+      } else {
+        const col = pick(['#2f8a3c', '#3a9a48', '#2a7a40']);
+        trunks.push({ x: p.x, z: p.z, y: p.y + 1.0 * s, sx: 0.3 * s, sy: 2 * s, sz: 0.3 * s, c: '#7a5030' });
+        l1.push({ x: p.x, z: p.z, y: p.y + 3.9 * s, sx: 2.3 * s, sy: 4.4 * s, sz: 2.3 * s, c: col }); l2.push({ x: p.x, z: p.z, y: p.y + 6.3 * s, sx: 1.6 * s, sy: 3.3 * s, sz: 1.6 * s, c: col });
+      }
+    }
+    add(cyl, trunks); add(blob, crowns, matSolid, hq, true); add(cone, [...l1, ...l2], matSolid, hq, true);
+    const hay = [];
+    for (const p of spots(46, 2.4, 20, 9, () => ({ r: 1.15 }), 'hay')) hay.push({ x: p.x, z: p.z, y: p.y + 0.75, sx: 0.85, sy: 1.5, sz: 0.85, rx: Math.PI / 2, ry: R() * 3, c: '#f1c75a' });
+    add(cyl, hay);
+    const bush = [], flw = [];
+    for (const p of spots(260, 1.6, 20, 16, () => { const s = 0.5 + R() * 0.9, f = R() < 0.5; return { s, f, r: f ? Math.max(1.25 * s, 1.5) : 1.25 * s }; }, 'bush')) {
+      const s = p.s; bush.push({ x: p.x, z: p.z, y: p.y + s * 0.45, sx: s * 1.2, sy: s * 0.8, sz: s * 1.1, ry: R() * 6, c: pick(['#3f9d3a', '#55b34a', '#2f8a3c']) });
+      if (p.f) flw.push({ x: p.x + 1.2, z: p.z + 0.6, y: p.y + 0.25, s: 0.22, c: pick(['#ff6fb1', '#ffd21e', '#ffffff', '#ff8a3c']) }, { x: p.x - 0.8, z: p.z + 1.1, y: p.y + 0.25, s: 0.2, c: pick(['#ff6fb1', '#ffd21e', '#ffffff']) });
+    }
     add(blob, bush); add(blob0, flw, matSolid, false);
-    for (const p of spots(46, 2.4, 20, 9)) hay.push({ ...p, y: p.y + 0.75, sx: 0.85, sy: 1.5, sz: 0.85, rx: Math.PI / 2, ry: R() * 3, c: '#f1c75a' }); add(cyl, hay);
   } else if (theme === 'desert') {
-    const st = [], arm = [];
-    for (const p of [...spots(110, 4.5), ...spots(70, 3, 20, 20)]) { const s = 0.8 + R() * 1.0, c = pick(['#3f9a55', '#4aa85f', '#358a4c']); st.push({ ...p, y: p.y + 2.1 * s, sx: 0.5 * s, sy: 4.6 * s, sz: 0.5 * s, c }); arm.push({ x: p.x + 0.9 * s, z: p.z, y: p.y + 2.6 * s, sx: 0.32 * s, sy: 1.8 * s, sz: 0.32 * s, c }, { x: p.x - 0.9 * s, z: p.z, y: p.y + 3.2 * s, sx: 0.32 * s, sy: 1.5 * s, sz: 0.32 * s, c }, { x: p.x + 0.55 * s, z: p.z, y: p.y + 1.9 * s, sx: 0.7 * s, sy: 0.3 * s, sz: 0.3 * s, c }, { x: p.x - 0.55 * s, z: p.z, y: p.y + 2.6 * s, sx: 0.7 * s, sy: 0.3 * s, sz: 0.3 * s, c }); }
-    add(cyl, st); add(cyl, arm);
     const mesa = [];
-    for (const p of spots(70, 16, 170)) { const w = 10 + R() * 22, h = 8 + R() * 26, ry = R() * 3; mesa.push({ ...p, y: p.y + h / 2 - 2, sx: w, sy: h + 4, sz: w * (0.7 + R() * 0.5), ry, c: pick(['#c9743a', '#b8632f', '#d98a4a']) }, { ...p, y: p.y + h + 0.9, sx: w * 0.82, sy: 2.2, sz: w * 0.72, ry, c: '#e6a862' }, { ...p, y: p.y + h * 0.45, sx: w * 1.04, sy: 1.2, sz: w * 0.9, ry, c: '#a85628' }); }
-    add(cyl, mesa);
+    for (const p of spots(70, 16, 170, 1e9, () => { const w = 10 + R() * 22, k = 0.7 + R() * 0.5; return { w, k, r: w * Math.max(1, k) * 1.06 }; }, 'mesa')) {
+      const w = p.w, h = 8 + R() * 26, ry = R() * 3;
+      mesa.push({ x: p.x, z: p.z, y: p.y + h / 2 - 2, sx: w, sy: h + 4, sz: w * p.k, ry, c: pick(['#c9743a', '#b8632f', '#d98a4a']) }, { x: p.x, z: p.z, y: p.y + h + 0.9, sx: w * 0.82, sy: 2.2, sz: w * p.k * 0.86, ry, c: '#e6a862' }, { x: p.x, z: p.z, y: p.y + h * 0.45, sx: w * 1.04, sy: 1.2, sz: w * p.k * 1.04, ry, c: '#a85628' });
+    }
+    add(cyl, mesa, matSolid, hq, true);
+    const st = [], arm = [];
+    const cactus = () => { const s = 0.8 + R() * 1.0; return { s, r: 1.3 * s }; };
+    for (const p of [...spots(110, 4.5, 110, 1e9, cactus, 'cactus'), ...spots(70, 3, 20, 20, cactus, 'cactus')]) { const s = p.s, c = pick(['#3f9a55', '#4aa85f', '#358a4c']); st.push({ x: p.x, z: p.z, y: p.y + 2.1 * s, sx: 0.5 * s, sy: 4.6 * s, sz: 0.5 * s, c }); arm.push({ x: p.x + 0.9 * s, z: p.z, y: p.y + 2.6 * s, sx: 0.32 * s, sy: 1.8 * s, sz: 0.32 * s, c }, { x: p.x - 0.9 * s, z: p.z, y: p.y + 3.2 * s, sx: 0.32 * s, sy: 1.5 * s, sz: 0.32 * s, c }, { x: p.x + 0.55 * s, z: p.z, y: p.y + 1.9 * s, sx: 0.7 * s, sy: 0.3 * s, sz: 0.3 * s, c }, { x: p.x - 0.55 * s, z: p.z, y: p.y + 2.6 * s, sx: 0.7 * s, sy: 0.3 * s, sz: 0.3 * s, c }); }
+    add(cyl, st); add(cyl, arm, matSolid, hq, true);
+    const barrel = []; for (const p of spots(40, 2.2, 20, 7, () => ({ r: 0.65 }), 'barrel')) barrel.push({ x: p.x, z: p.z, y: p.y + 0.65, sx: 0.55, sy: 1.3, sz: 0.55, c: pick(['#e8332b', '#2f6df6', '#ffd21e']) }); add(cyl, barrel);
     const rocks = [], bush = [];
-    for (const p of spots(240, 1.8, 20, 18)) { const s = 0.5 + R() * 1.5; if (R() < 0.6) rocks.push({ ...p, y: p.y + s * 0.3, sx: s, sy: s * 0.7, sz: s * 1.2, ry: R() * 3, c: pick(['#b98a5a', '#a87848', '#caa070']) }); else bush.push({ ...p, y: p.y + 0.35, sx: s * 0.9, sy: s * 0.5, sz: s * 0.9, ry: R() * 3, c: pick(['#9aa04a', '#7f8a3a', '#b0a858']) }); }
+    for (const p of spots(240, 1.8, 20, 18, () => { const s = 0.5 + R() * 1.5, rock = R() < 0.6; return { s, rock, r: (rock ? 1.25 : 0.95) * s }; }, 'rock')) { const s = p.s; if (p.rock) rocks.push({ x: p.x, z: p.z, y: p.y + s * 0.3, sx: s, sy: s * 0.7, sz: s * 1.2, ry: R() * 3, c: pick(['#b98a5a', '#a87848', '#caa070']) }); else bush.push({ x: p.x, z: p.z, y: p.y + 0.35, sx: s * 0.9, sy: s * 0.5, sz: s * 0.9, ry: R() * 3, c: pick(['#9aa04a', '#7f8a3a', '#b0a858']) }); }
     add(blob, rocks); add(blob, bush);
-    const barrel = []; for (const p of spots(40, 2.2, 20, 7)) barrel.push({ ...p, y: p.y + 0.65, sx: 0.55, sy: 1.3, sz: 0.55, c: pick(['#e8332b', '#2f6df6', '#ffd21e']) }); add(cyl, barrel);
   } else if (theme === 'ice') {
+    const spikes = []; for (const p of spots(110, 6, 160, 1e9, () => { const s = 2 + R() * 7; return { s, r: s * 0.75 }; }, 'spike')) { const s = p.s; spikes.push({ x: p.x, z: p.z, y: p.y + s * 1.3, sx: s * 0.7, sy: s * 2.8, sz: s * 0.7, c: pick(['#bfe9ff', '#9fd8ff', '#e6f7ff']) }); } add(cone, spikes);
     const trunks = [], l1 = [], l2 = [], snow = [];
-    for (const p of [...spots(160, 5), ...spots(100, 3.2, 20, 24)]) { const s = 0.9 + R() * 0.9; trunks.push({ ...p, y: p.y + 1.0 * s, sx: 0.3 * s, sy: 2 * s, sz: 0.3 * s, c: '#6b4a34' }); l1.push({ ...p, y: p.y + 3.8 * s, sx: 2.2 * s, sy: 4.4 * s, sz: 2.2 * s, c: '#2f7d6a' }); l2.push({ ...p, y: p.y + 6.2 * s, sx: 1.5 * s, sy: 3.4 * s, sz: 1.5 * s, c: '#3a8f7a' }); snow.push({ ...p, y: p.y + 7.6 * s, sx: 0.9 * s, sy: 1.5 * s, sz: 0.9 * s, c: '#ffffff' }, { ...p, y: p.y + 5.0 * s, sx: 1.75 * s, sy: 0.9 * s, sz: 1.75 * s, c: '#f2fbff' }); }
-    add(cyl, trunks); add(cone, [...l1, ...l2, ...snow]);
-    const spikes = []; for (const p of spots(110, 6, 160)) { const s = 2 + R() * 7; spikes.push({ ...p, y: p.y + s * 1.3, sx: s * 0.7, sy: s * 2.8, sz: s * 0.7, rz: (R() - 0.5) * 0.3, c: pick(['#bfe9ff', '#9fd8ff', '#e6f7ff']) }); } add(cone, spikes);
+    const pine = () => { const s = 0.9 + R() * 0.9; return { s, r: 2.3 * s }; };
+    for (const p of [...spots(160, 5, 110, 1e9, pine, 'tree'), ...spots(100, 3.2, 20, 24, pine, 'tree')]) { const s = p.s; trunks.push({ x: p.x, z: p.z, y: p.y + 1.0 * s, sx: 0.3 * s, sy: 2 * s, sz: 0.3 * s, c: '#6b4a34' }); l1.push({ x: p.x, z: p.z, y: p.y + 3.8 * s, sx: 2.2 * s, sy: 4.4 * s, sz: 2.2 * s, c: '#2f7d6a' }); l2.push({ x: p.x, z: p.z, y: p.y + 6.2 * s, sx: 1.5 * s, sy: 3.4 * s, sz: 1.5 * s, c: '#3a8f7a' }); snow.push({ x: p.x, z: p.z, y: p.y + 7.6 * s, sx: 0.9 * s, sy: 1.5 * s, sz: 0.9 * s, c: '#ffffff' }, { x: p.x, z: p.z, y: p.y + 5.0 * s, sx: 1.75 * s, sy: 0.9 * s, sz: 1.75 * s, c: '#f2fbff' }); }
+    add(cyl, trunks); add(cone, [...l1, ...l2, ...snow], matSolid, hq, true);
     const sm = [], nose = [];
-    for (const p of spots(36, 2.4, 20, 10)) { sm.push({ ...p, y: p.y + 0.8, s: 0.9, c: '#fff' }, { ...p, y: p.y + 2.0, s: 0.65, c: '#fff' }, { ...p, y: p.y + 2.95, s: 0.45, c: '#fff' }); nose.push({ ...p, y: p.y + 3.5, sx: 0.5, sy: 0.5, sz: 0.5, c: '#e8332b' }); }
-    add(sph, sm); add(cone, nose);
-    const mound = []; for (const p of spots(200, 1.8, 20, 18)) { const s = 0.8 + R() * 2; mound.push({ ...p, y: p.y, sx: s * 1.4, sy: s * 0.6, sz: s * 1.2, ry: R() * 3, c: pick(['#ffffff', '#eaf6ff', '#d6ecfa']) }); } add(blob, mound);
-    const cane = []; for (const p of spots(40, 2.2, 20, 6)) cane.push({ ...p, y: p.y + 1.4, sx: 0.16, sy: 2.8, sz: 0.16, c: R() < 0.5 ? '#e8332b' : '#ffffff' }); add(cyl, cane);
+    for (const p of spots(36, 2.4, 20, 10, () => ({ r: 1.0 }), 'snowman')) { sm.push({ x: p.x, z: p.z, y: p.y + 0.8, s: 0.9, c: '#fff' }, { x: p.x, z: p.z, y: p.y + 2.0, s: 0.65, c: '#fff' }, { x: p.x, z: p.z, y: p.y + 2.95, s: 0.45, c: '#fff' }); nose.push({ x: p.x, z: p.z + 0.5, y: p.y + 3.0, sx: 0.12, sy: 0.4, sz: 0.12, rx: Math.PI / 2, c: '#ff8a1c' }); }
+    add(sph, sm, matSolid, hq, true); add(cone, nose);
+    const cane = []; for (const p of spots(40, 2.2, 20, 6, () => ({ r: 0.35 }), 'cane')) cane.push({ x: p.x, z: p.z, y: p.y + 1.4, sx: 0.16, sy: 2.8, sz: 0.16, c: R() < 0.5 ? '#e8332b' : '#ffffff' }); add(cyl, cane);
+    const mound = []; for (const p of spots(200, 1.8, 20, 18, () => { const s = 0.8 + R() * 2; return { s, r: s * 1.45 }; }, 'mound')) { const s = p.s; mound.push({ x: p.x, z: p.z, y: p.y, sx: s * 1.4, sy: s * 0.6, sz: s * 1.2, ry: R() * 3, c: pick(['#ffffff', '#eaf6ff', '#d6ecfa']) }); } add(blob, mound);
   } else if (theme === 'city') {
     const winTex = canvasTex(64, 128, (c, w, h) => { c.fillStyle = '#000'; c.fillRect(0, 0, w, h); for (let a = 0; a < 4; a++) for (let b = 0; b < 10; b++) { if (R() < 0.62) { c.fillStyle = pick(['#ffe9a8', '#9fe8ff', '#ffb3e6', '#fff']); c.fillRect(a * 16 + 3, b * 12.8 + 3, 10, 7); } } });
     const bMat = new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveMap: winTex, emissiveIntensity: 1.0 }); disposables.push(bMat, winTex);
     const bl = [], tops = [];
-    for (const p of spots(170, 15, 180)) { const w = 12 + R() * 16, h = 18 + R() * 76, d = 12 + R() * 16, ry = Math.floor(R() * 2) * Math.PI / 2; bl.push({ ...p, y: h / 2 - 1, sx: w, sy: h, sz: d, ry, c: pick(['#2a2d55', '#352a5c', '#1f2a4a', '#3a2350']) }); if (R() < 0.5) tops.push({ ...p, y: h - 0.4, sx: w * 1.02, sy: 0.8, sz: d * 1.02, ry, c: pick(['#ff3fa4', '#2ef2ff', '#ffe66a', '#8b5cf6']) }); }
+    for (const p of spots(170, 15, 180, 1e9, () => { const w = 12 + R() * 16, d = 12 + R() * 16; return { w, d, r: Math.hypot(w, d) / 2 + 0.5 }; }, 'building')) {
+      const { w, d } = p, h = 18 + R() * 76, ry = Math.floor(R() * 2) * Math.PI / 2;
+      bl.push({ x: p.x, z: p.z, y: h / 2 - 1, sx: w, sy: h, sz: d, ry, c: pick(['#2a2d55', '#352a5c', '#1f2a4a', '#3a2350']) });
+      if (R() < 0.5) tops.push({ x: p.x, z: p.z, y: h - 0.4, sx: w * 1.02, sy: 0.8, sz: d * 1.02, ry, c: pick(['#ff3fa4', '#2ef2ff', '#ffe66a', '#8b5cf6']) });
+    }
     add(box, bl, bMat, false); add(box, tops, basic({ color: '#ffffff' }), false);
     const shopTex = canvasTex(128, 64, (c, w, h) => { c.fillStyle = '#000'; c.fillRect(0, 0, w, h); c.fillStyle = '#fff'; c.fillRect(6, 34, w - 12, 24); c.fillRect(0, 8, w, 10); });
     const sMat = new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveMap: shopTex }); disposables.push(sMat, shopTex);
-    const shops = []; for (const p of spots(90, 5, 30, 13)) { const w = 6 + R() * 6; shops.push({ ...p, y: 2.4, sx: w, sy: 5.2, sz: 5 + R() * 3, ry: Math.floor(R() * 4) * Math.PI / 2, c: pick(['#ff3fa4', '#2ef2ff', '#ffe66a', '#8b5cf6', '#ff7a3c']) }); }
+    const shops = []; for (const p of spots(90, 5, 30, 13, () => { const w = 6 + R() * 6, d = 5 + R() * 3; return { w, d, r: Math.hypot(w, d) / 2 + 0.3 }; }, 'shop')) shops.push({ x: p.x, z: p.z, y: 2.4, sx: p.w, sy: 5.2, sz: p.d, ry: Math.floor(R() * 4) * Math.PI / 2, c: pick(['#ff3fa4', '#2ef2ff', '#ffe66a', '#8b5cf6', '#ff7a3c']) });
     add(box, shops, sMat, false);
     const sp = []; for (let i = 0; i < 600; i++) { const a = R() * 6.28, e = 0.1 + R() * 1.3, r = 1350; sp.push(cx + Math.cos(a) * Math.cos(e) * r, Math.sin(e) * r, cz + Math.sin(a) * Math.cos(e) * r); }
     const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
@@ -604,7 +651,7 @@ export function buildWorld(T, opt = {}) {
   }
 
   return {
-    group: g, theme: th, heightAt, hq,
+    group: g, theme: th, heightAt, hq, foot,
     fog: new THREE.Fog(th.fog, th.night ? 140 : 260, th.night ? 950 : 1350),
     // 출발 신호등: n = 켜진 빨간 불 수(0~5), 'go' = 모두 초록
     setLights(n) {
