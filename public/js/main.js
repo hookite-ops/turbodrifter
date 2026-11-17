@@ -6,6 +6,7 @@ import { buildWorld, preloadLandmarks } from './world.js';
 import { loadKartAsset, makeKart, poseKart, makeTag, setKartShadow, CHARS, COLORS, KARTS } from './kartmodel.js';
 import { makeFx } from './fx.js';
 import { sfx, music } from './audio.js';
+import { LICENSES, GOAL_NAME, loadLic, licDone, licOpen, licBest, licState, licEvent, licCheck, licGoalMet, licRows } from './license.js';
 
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -88,7 +89,7 @@ if (!profile.name) profile.name = '라이더' + Math.floor(100 + Math.random() *
 const saveProfile = () => { store.set('td_profile', profile); if (net.connected) net.send({ t: 'me', name: profile.name, char: profile.char, color: profile.color, kart: profile.kart | 0 }); };
 
 // ---------------- 화면 전환 ----------------
-const SCREENS = ['menu', 'online', 'room', 'solo', 'help', 'results', 'pause'];
+const SCREENS = ['menu', 'online', 'room', 'solo', 'license', 'help', 'results', 'pause'];
 let screen = 'menu';
 function show(name) {
   screen = name;
@@ -460,7 +461,9 @@ function startRace(cfg) {
   R.introShown = false;
   // 기록·고스트
   R.lapTimes = []; R.frames = []; R.recNext = 0; R.rec = null; R.ghost = null;
-  if (!R.online) {
+  R.lic = cfg.lic ? licState(cfg.lic.li, cfg.lic.ti) : null;
+  $('h-lic').classList.toggle('hidden', !R.lic); $('h-board').classList.toggle('hidden', !!R.lic); hudCache.lic = '';
+  if (!R.online && !R.lic) {
     R.rec = records[recKey(cfg)] || null;
     const gf = (cfg.rivals | 0) === 0 && R.rec ? store.get('td_ghost_' + recKey(cfg), null) : null;
     if (gf && gf.length > 8) {
@@ -502,6 +505,39 @@ function endRace() {
   document.body.classList.remove('racing'); splitOn = false; resize();
 }
 
+// ---------------- 라이선스 ----------------
+let licS = loadLic(store);
+function startLic(li, ti) { startRace({ track: LICENSES[li].tests[ti].track, mode: 'speed', laps: 1, rivals: 0, rev: 0, online: false, lic: { li, ti } }); }
+function licFinish(R, t) {
+  const S = R.lic; if (S.fail) return;
+  if (!licGoalMet(S)) { S.fail = ''; S.pass = false; }
+  else if (licCheck(S, t)) { S.fail = licCheck(S, t); }
+  else {
+    S.pass = true; const lic = LICENSES[S.li], had = licDone(licS, lic);
+    licS[lic.id][S.ti] = 1; store.set('td_lic', licS); S.newLic = !had && licDone(licS, lic); paintLicBadge();
+    setTimeout(() => race === R && flashSub(S.newLic ? `${lic.name} 획득!` : '합격!', 'inst'), 300);
+  }
+  if (!S.pass) setTimeout(() => race === R && flashSub('불합격', 'warn'), 300);
+  if (!R.endAt) R.endAt = performance.now() + 1500;
+}
+function paintLicBadge() { const b = licBest(licS); const el = $('m-lic'); el.textContent = b ? b.id : ''; el.style.color = b ? b.color : ''; }
+function renderLicense() {
+  const g = $('lic-grid'); g.innerHTML = '';
+  LICENSES.forEach((L, li) => {
+    const open = licOpen(licS, li), n = licS[L.id].filter(Boolean).length;
+    const c = document.createElement('div'); c.className = 'lic-card' + (open ? '' : ' locked'); c.style.setProperty('--lc', L.color);
+    c.innerHTML = `<h3>${L.name}<small>${!open ? '잠김 · ' + LICENSES[li - 1].name + ' 먼저' : n === L.tests.length ? '획득' : `${n} / ${L.tests.length} 합격`}</small></h3>`;
+    L.tests.forEach((t, ti) => {
+      const d = document.createElement('div'), pass = !!licS[L.id][ti]; d.className = 'lic-test' + (pass ? ' pass' : '');
+      const tr = TRACKS.find(x => x.id === t.track);
+      d.innerHTML = `<b>${t.title}</b><button class="btn ${pass ? '' : 'red'}"${open ? '' : ' disabled'}>${pass ? '다시' : '도전'}</button><p>${tr ? tr.name : ''} · ${t.tip}</p>`;
+      d.querySelector('button').onclick = () => { sfx.click(); startLic(li, ti); };
+      c.appendChild(d);
+    });
+    g.appendChild(c);
+  });
+}
+
 function finishRace(results) {
   const R = race; if (!R || R.done) return; R.done = true;
   const list = $('res-list'); list.innerHTML = '';
@@ -512,12 +548,21 @@ function finishRace(results) {
     d.querySelector('.nm').textContent = r.name; list.appendChild(d);
   }
   const mine = results.find(r => r.me);
-  $('res-title').textContent = mine ? (mine.time == null ? '리타이어…' : R.newRec ? (R.karts.length > 1 ? `${mine.rank}위 · 신기록!` : `신기록! ${fmt(mine.time)}`) : `${mine.rank}위로 완주!`) : '경기 결과';
+  const rl = $('res-lic'), L = R.lic;
+  rl.classList.toggle('hidden', !L);
+  list.classList.toggle('hidden', !!L);
+  if (L) {
+    const lic = LICENSES[L.li], last = L.ti === lic.tests.length - 1, nowDone = L.pass && licDone(licS, lic);
+    rl.className = 'res-lic ' + (L.pass ? 'pass' : 'fail');
+    rl.innerHTML = `<h3>${L.pass ? (nowDone && L.newLic ? `${lic.name} 라이선스 획득!` : '합격!') : '불합격'}</h3><p>${lic.name} · ${L.def.title} — ${L.pass ? '조건을 모두 채웠어요.' : L.fail || '아직 못 채운 조건이 있어요: ' + Object.entries(L.def.goal || {}).filter(([k, v]) => L.c[k] < v).map(([k, v]) => `${GOAL_NAME[k]} ${L.c[k]}/${v}`).join(', ')}</p><div class="row"><button class="btn blue" data-a="retry">다시 도전</button>${L.pass && !last ? '<button class="btn red" data-a="next">다음 시험</button>' : ''}</div>`;
+    rl.querySelectorAll('button').forEach(b => b.onclick = () => { sfx.click(); startLic(L.li, b.dataset.a === 'next' ? L.ti + 1 : L.ti); });
+  }
+  $('res-title').textContent = L ? '라이선스 시험' : mine ? (mine.time == null ? '리타이어…' : R.newRec ? (R.karts.length > 1 ? `${mine.rank}위 · 신기록!` : `신기록! ${fmt(mine.time)}`) : `${mine.rank}위로 완주!`) : '경기 결과';
   const wasOnline = R.online, cfg = R.cfg;
   const top = results.filter(r => r.time != null).slice(0, 3).map(r => { const e = R.karts.find(x => x.id === r.id); return e ? { char: e.char, color: e.color, kart: e.kartIdx, name: r.name, rank: r.rank, me: r.me } : null; }).filter(Boolean);
   setTimeout(() => {
     endRace(); buildPodium(top); show('results'); music.play('menu', 1.2);
-    $('b-res-ok').onclick = () => { sfx.click(); if (wasOnline && net.room) { show('room'); renderRoom(); } else show(wasOnline ? 'menu' : 'solo'); };
+    $('b-res-ok').onclick = () => { sfx.click(); if (wasOnline && net.room) { show('room'); renderRoom(); } else if (L) { renderLicense(); show('license'); } else show(wasOnline ? 'menu' : 'solo'); };
   }, mine && mine.time != null ? 1800 : 900);
 }
 
@@ -674,6 +719,11 @@ function updateRace(dt, now) {
   }
   R.lastRank = myRank;
 
+  // ----- 라이선스: 제한을 넘으면 바로 불합격 -----
+  if (R.lic && R.phase === 'race' && !me.finished && !R.lic.fail) {
+    const why = licCheck(R.lic, Math.max(0, t));
+    if (why) { R.lic.fail = why; showMsg('불합격', 'warn', 2); sfx.tone(220, 0.35, 'sawtooth', 0.08); R.endAt = now + 1600; me.finished = true; me.finishTime = null; }
+  }
   // ----- 혼자 달리기: 종료 판정 -----
   if (!R.online && !R.done && R.phase === 'race') {
     if (R.karts.every(e => e.finished) || (R.endAt && now >= R.endAt)) finishRace(localResults());
@@ -786,6 +836,11 @@ function updateRace(dt, now) {
     let from = clamp(myRank - Math.ceil(fit / 2), 0, Math.max(0, order.length - fit));
     order.slice(from, from + fit).forEach((e, i) => { html += `<div class="${e.me ? 'me' : ''}${e.finished ? ' fin' : ''}"><i>${from + i + 1}</i>${e.name.replace(/[<>&]/g, '')}</div>`; });
     if (hudCache.board !== html) { hudCache.board = html; b.innerHTML = html; }
+    if (R.lic) {
+      let lh = `<span class="t">${R.lic.def.title}</span>`;
+      for (const r of licRows(R.lic, Math.max(0, t))) lh += `<div class="${r.ok || (r.fin && me.finished && R.lic.pass) ? 'ok' : r.warn ? (r.ok ? 'warn' : 'bad') : ''}">${r.txt}</div>`;
+      if (hudCache.lic !== lh) { hudCache.lic = lh; $('h-lic').innerHTML = lh; }
+    }
   }
   // 미니맵
   const mc = $('mini').getContext('2d'); mc.clearRect(0, 0, 220, 220); mc.drawImage(R.miniBase, 0, 0);
@@ -804,6 +859,7 @@ function boostFx(R, k) {
 }
 function handleEvents(R, me, ev) {
   const k = me.k;
+  if (R.lic && !me.finished && !R.lic.fail) licEvent(R.lic, ev, k);
   if (ev.boost && !ev.start) boostFx(R, k);
   if (ev.inst) { sfx.inst(); R.fx.ring(k.x, k.y, k.z, k.h, 0xffb347, 0.55); flashSub('순간 부스터!', 'inst'); }
   if (ev.charged) { sfx.charged(); R.fx.burst(k.x, k.y + 0.6, k.z, 16, 0.45, 0.8, 1); }
@@ -832,6 +888,7 @@ function handleEvents(R, me, ev) {
       const rank = R.karts.filter(e => e.finished).length;
       showMsg('FINISH!', 'go', 3); sfx.finish(); setText('h-time', fmt(me.finishTime)); R.fx.confetti(k.x, k.y, k.z);
       if (R.online) net.send({ t: 'fin', time: me.finishTime });
+      else if (R.lic) licFinish(R, me.finishTime / 1000);
       else if (!R.rec || me.finishTime < R.rec.total) {   // 신기록: 기록과 고스트 저장
         R.newRec = true;
         records[recKey(R.cfg)] = { total: me.finishTime, laps: R.lapTimes, bestLap: Math.round(me.bestLap || 0), at: Date.now() };
@@ -963,6 +1020,8 @@ function init() {
   document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => { sfx.click(); show('menu'); });
   $('b-solo').onclick = () => { sfx.click(); show('solo'); };
   $('b-help').onclick = () => { sfx.click(); show('help'); };
+  $('b-lic').onclick = () => { sfx.click(); renderLicense(); show('license'); };
+  paintLicBadge();
   const paintHq = () => { $('b-hq').textContent = HQ ? '그림자 켜짐' : '그림자 꺼짐'; };
   $('b-hq').onclick = () => { sfx.click(); HQ = !HQ; store.set('td_hq', HQ); paintHq(); toast(HQ ? '그림자를 켰어요. 느리면 다시 꺼 주세요.' : '그림자를 껐어요. 더 가볍게 돌아가요.'); };
   paintHq();
