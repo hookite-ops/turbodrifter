@@ -293,6 +293,11 @@ body:not(.kb) .h-tip{top:48%}
 .help-grid{display:grid;grid-template-columns:auto 1fr;gap:10px 18px;font-size:clamp(14px,2.1vh,18px);align-items:baseline;line-height:1.55;max-width:900px}
 .help-grid b{font-family:var(--disp);font-weight:400;color:var(--yellow);white-space:nowrap;font-size:1.1em}
 .help-tabs{max-width:900px;margin-bottom:18px} .help-tabs button.on{background:var(--yellow);color:var(--ink)}
+#kstats{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px}
+.kst{display:grid;grid-template-columns:5.2em 1fr;align-items:center;gap:8px;font-size:12.5px;color:#c3c8d8}
+.kst i{display:block;height:8px;border-radius:4px;background:var(--panel2);overflow:hidden}
+.kst b{display:block;height:100%;background:var(--yellow);transform-origin:left;transition:transform 240ms var(--ease-out)}
+.kdesc{grid-column:1/-1;font-size:13px;line-height:1.45;color:#aab0c4;margin-top:2px}
 .help-credit{margin-top:22px;font-size:13px;color:#8a90a6}
 .pausebox{display:flex;flex-direction:column;gap:14px;min-width:min(80vw,340px);padding:22px 26px 26px 22px}
 .pausebox h2{font-family:var(--disp);font-weight:400;font-size:30px;transform:skewX(var(--sk));margin-bottom:4px}
@@ -322,7 +327,8 @@ body:not(.kb) .h-tip{top:48%}
         <div id="chars" class="chips"></div>
         <div class="lbl">카트</div>
         <div id="karts" class="chips"></div>
-        <div class="lbl" id="colorlbl">카트 색</div>
+        <div id="kstats"></div>
+        <div class="lbl" id="colorlbl">스카프 색</div>
         <div id="colors" class="dots"></div>
       </div>
       <div class="m-go">
@@ -333,7 +339,7 @@ body:not(.kb) .h-tip{top:48%}
   </div>
   <div class="m-util"><button class="btn ghost" id="b-help">조작법</button><button class="btn ghost" id="b-hq">그림자 켜짐</button><button class="btn ghost" id="b-bgm">음악 켜짐</button></div>
 </section>
-<div class="ver hidden" id="ver">v3.3</div>
+<div class="ver hidden" id="ver">v3.4</div>
 
 <!-- 온라인 로비 -->
 <section id="online" class="screen scrim hidden">

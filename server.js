@@ -74,7 +74,7 @@ const MODES = ['speed', 'infinite'];
 const MAX = 8, MAX_ROOMS = 150, MAX_CONN = 500, MAX_PER_IP = 10;
 const GRACE = 20000;            // 연결이 끊겨도 이 시간 동안 자리를 지켜 준다 (재접속)
 const START_DELAY = 8600;       // 트랙 소개 4초 + 카운트다운
-const TOP_SPEED = 46;           // m/s. 부스터 41 + 드래프트 5 — 이보다 빠른 완주 기록은 받지 않는다
+const TOP_SPEED = 48;           // m/s. 로켓 부스터 42.8 + 드래프트 5 — 이보다 빠른 완주 기록은 받지 않는다
 const rooms = new Map();
 const sessions = new Map();     // 토큰 → 플레이어
 const ipCount = new Map();

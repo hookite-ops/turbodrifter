@@ -1,7 +1,7 @@
 // 터보 드리프터 — 게임 본체 (메뉴, 레이스, HUD, 입력, 온라인)
 import * as THREE from '../lib/three.bundle.js';
 import { TRACKS, buildTrack, gridSlot, pointAt } from './tracks.js';
-import { C, KMH, createKart, placeKart, stepKart, startBoost, stepDraft, pushApart, createBot, botInput } from './physics.js';
+import { C, KMH, STATS, createKart, placeKart, stepKart, startBoost, stepDraft, pushApart, createBot, botInput } from './physics.js';
 import { buildWorld, preloadLandmarks } from './world.js';
 import { loadKartAsset, makeKart, poseKart, makeTag, setKartShadow, CHARS, COLORS, KARTS } from './kartmodel.js';
 import { makeFx } from './fx.js';
@@ -371,7 +371,7 @@ const BOT_NAMES = ['번개', '솜사탕', '호두', '단풍', '초코', '모카'
 
 function addKart(R, o) {
   const model = makeKart(o.char, o.color, o.kart | 0);
-  const e = { kartIdx: o.kart | 0, id: o.id, name: o.name, me: !!o.me, bot: o.bot || null, remote: !!o.remote, k: createKart(), model, fx: {}, finished: false, finishTime: 0, char: o.char, color: o.color, net: null, vis: null, lapStart: 0, bestLap: 0, inp: null };
+  const e = { kartIdx: o.kart | 0, id: o.id, name: o.name, me: !!o.me, bot: o.bot || null, remote: !!o.remote, k: createKart(STATS[(KARTS[(o.kart | 0) % KARTS.length] || {}).id]), model, fx: {}, finished: false, finishTime: 0, char: o.char, color: o.color, net: null, vis: null, lapStart: 0, bestLap: 0, inp: null };
   placeKart(e.k, R.T, gridSlot(R.T, o.slot));
   setKartShadow(model, HQ);
   if (!e.me) { e.tag = makeTag(o.name, e.bot ? '#d5dcff' : '#ffffff'); model.group.add(e.tag); }
@@ -883,7 +883,16 @@ function buildMenu() {
   KARTS.forEach((k, i) => { const b = document.createElement('button'); b.className = 'chip'; b.textContent = k.name; b.onclick = () => { sfx.click(); profile.kart = i; saveProfile(); paint(); refreshMenuKart(); }; ke.appendChild(b); });
   CHARS.forEach((c, i) => { const b = document.createElement('button'); b.className = 'chip'; b.textContent = c.name; b.title = c.kind; b.onclick = () => { sfx.click(); profile.char = i; saveProfile(); paint(); refreshMenuKart(); }; ce.appendChild(b); });
   COLORS.forEach((c, i) => { const b = document.createElement('button'); b.className = 'dot'; b.style.background = c.hex; b.title = c.name; b.onclick = () => { sfx.click(); profile.color = i; saveProfile(); paint(); refreshMenuKart(); }; co.appendChild(b); });
-  function paint() { [...ce.children].forEach((b, i) => b.classList.toggle('on', i === profile.char)); [...co.children].forEach((b, i) => b.classList.toggle('on', i === profile.color)); [...ke.children].forEach((b, i) => b.classList.toggle('on', i === (profile.kart | 0))); $('colorlbl').textContent = (profile.kart | 0) === 0 ? '카트 색' : '스카프 색'; }
+  // 카트 능력치 막대: 1.0 = 가운데, 차이를 눈에 보이게 키워서 보여준다
+  const kst = $('kstats'), ROWS = [['최고 속도', 'speed'], ['부스터', 'boost'], ['게이지 충전', 'gauge'], ['코너링', 'turn']];
+  kst.innerHTML = ROWS.map(([n]) => `<div class="kst"><span>${n}</span><i><b></b></i></div>`).join('') + '<p class="kdesc"></p>';
+  const KDESC = { toy: '드리프트형 · 게이지가 잘 차고 코너를 날카롭게 돈다. 굽은 트랙에 강하다.', rocket: '속도형 · 최고 속도와 부스터가 빠르지만 코너에서 속도를 더 잃는다. 빠른 트랙에 강하다.' };
+  const paintStats = () => {
+    const K = KARTS[(profile.kart | 0) % KARTS.length], st = STATS[K.id];
+    [...kst.querySelectorAll('.kst b')].forEach((b, i) => { const v = st[ROWS[i][1]]; b.style.transform = `scaleX(${clamp(0.5 + (v - 1) * 4, 0.12, 1)})`; });
+    kst.querySelector('.kdesc').textContent = KDESC[K.id] || '';
+  };
+  function paint() { paintStats(); [...ce.children].forEach((b, i) => b.classList.toggle('on', i === profile.char)); [...co.children].forEach((b, i) => b.classList.toggle('on', i === profile.color)); [...ke.children].forEach((b, i) => b.classList.toggle('on', i === (profile.kart | 0))); $('colorlbl').textContent = '스카프 색'; }
   paint();
 }
 const soloCfg = Object.assign({ track: 'village', mode: 'speed', laps: 3, rivals: 7 }, store.get('td_solo', {}));

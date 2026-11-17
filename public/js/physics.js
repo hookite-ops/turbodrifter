@@ -41,8 +41,15 @@ export function gripYaw(v) {
 // 드리프트 중 진행 방향이 도는 속도 (각이 깊을수록 급하게)
 export const driftTurn = slipMag => C.turnBase + C.turnSlip * slipMag;
 
-export function createKart() {
+// 카트 성능 배율: speed 최고 속도, boost 부스터 속도, gauge 게이지 충전, turn 드리프트 회전, drag 드리프트 감속
+export const STATS = {
+  toy: { speed: 1.0, boost: 1.0, gauge: 1.14, turn: 1.07, drag: 0.92 },      // 드리프트형
+  rocket: { speed: 1.045, boost: 1.045, gauge: 0.9, turn: 0.95, drag: 1.1 },   // 속도형
+};
+const NO_STAT = { speed: 1, boost: 1, gauge: 1, turn: 1, drag: 1 };
+export function createKart(stat = NO_STAT) {
   return {
+    st: stat,
     x: 0, z: 0, y: 0, h: 0, mv: 0, speed: 0,
     steer: 0, yawVel: 0,
     drifting: false, driftDir: 0, driftT: 0, slip: 0, kick: 0, armed: false, pendDir: 0,
@@ -145,7 +152,7 @@ export function stepKart(k, inp, dt, T, rule) {
     else if (into) mag -= C.slipHold * (ice ? 0.35 : 1) * dt;                          // 방향키 유지: 끌기 (빙판은 더 오래)
     else mag -= C.slipFree * (ice ? 0.45 : 1) * dt;                                    // 손을 떼면 서서히 복귀
     mag = clamp(mag, 0, spin ? C.spinMax : cap);
-    const turn = driftTurn(Math.min(mag, C.maxSlip)) * clamp(mag / 0.2, 0, 1) * (counter || k.cutT > 0 ? 0.35 : into ? 1.1 : 0.42) * (air ? 0.3 : 1) * (k.dblT > 0 ? 1.3 : 1) * (mag > 1.6 ? 0.3 : 1);
+    const turn = driftTurn(Math.min(mag, C.maxSlip)) * k.st.turn * clamp(mag / 0.2, 0, 1) * (counter || k.cutT > 0 ? 0.35 : into ? 1.1 : 0.42) * (air ? 0.3 : 1) * (k.dblT > 0 ? 1.3 : 1) * (mag > 1.6 ? 0.3 : 1);
     k.mv += d * turn * sf * dt;
     k.slip = d * mag;
     k.h = k.mv + k.slip;
@@ -161,10 +168,11 @@ export function stepKart(k, inp, dt, T, rule) {
   const slip = k.slip;
 
   // --- 속도 ---
-  let vmax = C.maxSpeed, acc = C.accel;
-  if (boosting) { vmax = C.boostSpeed; acc = C.boostAccel; }
-  else if (inst) { vmax = C.instSpeed; acc = C.instAccel; }
-  if (k.padT > 0) { k.padT -= dt; vmax = Math.max(vmax, C.boostSpeed); acc = Math.max(acc, C.boostAccel); }
+  const st = k.st;
+  let vmax = C.maxSpeed * st.speed, acc = C.accel;
+  if (boosting) { vmax = C.boostSpeed * st.boost; acc = C.boostAccel; }
+  else if (inst) { vmax = C.instSpeed * st.boost; acc = C.instAccel; }
+  if (k.padT > 0) { k.padT -= dt; vmax = Math.max(vmax, C.boostSpeed * st.boost); acc = Math.max(acc, C.boostAccel); }
   if (k.draftCd > 0) k.draftCd -= dt;
   if (k.draftB > 0) { k.draftB -= dt; if (!water) { vmax += C.draftSpeed; acc = Math.max(acc, 30); } }   // 드래프트: 순간 가속
   if (water) { vmax *= 0.6; acc *= 0.7; }                     // 물웅덩이: 느려진다
@@ -186,13 +194,13 @@ export function stepKart(k, inp, dt, T, rule) {
   }
   if (k.speed > 0 && !air) k.speed += slopeAcc * dt * 0.5;
   if (water && k.speed > vmax) k.speed -= (k.speed - vmax) * 2.5 * dt;
-  if (k.drifting && k.cutT <= 0) k.speed -= k.speed * (C.driftBase + C.driftDrag * Math.sin(Math.min(Math.abs(slip), Math.PI / 2)) ** 2 * (Math.abs(slip) > 1.3 ? 1.8 : 1)) * (boosting ? 0.6 : 1) * dt;
+  if (k.drifting && k.cutT <= 0) k.speed -= k.speed * (C.driftBase + C.driftDrag * Math.sin(Math.min(Math.abs(slip), Math.PI / 2)) ** 2 * (Math.abs(slip) > 1.3 ? 1.8 : 1)) * st.drag * (boosting ? 0.6 : 1) * dt;
   if (k.speed < 0 && Math.abs(slip) > Math.PI / 2 && k.drifting) k.speed = 0;
 
   // --- 드리프트 게이지 ---
   if (k.drifting) {
     // 오래 끌수록 충전 효율이 떨어진다 (짧게 끊어 치는 편이 유리)
-    const g = C.gaugeRate * (ice ? 1.3 : 1) * Math.min(Math.abs(slip), C.maxSlip) * clamp(k.speed / C.maxSpeed, 0, 1.2) / (1 + Math.max(0, k.driftT - 0.6) * 0.9) * k.gMul;
+    const g = C.gaugeRate * k.st.gauge * (ice ? 1.3 : 1) * Math.min(Math.abs(slip), C.maxSlip) * clamp(k.speed / C.maxSpeed, 0, 1.2) / (1 + Math.max(0, k.driftT - 0.6) * 0.9) * k.gMul;
     k.driftG += g * dt;
     addGauge(k, g * dt * (inf ? 2.2 : 1), ev, inf);
     if ((Math.abs(slip) < 0.04 && k.kick <= 0 && k.driftT > 0.08) || k.speed < 6) {

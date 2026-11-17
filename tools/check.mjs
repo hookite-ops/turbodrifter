@@ -1,7 +1,7 @@
 // 트랙 검증: 길이·최소 반지름·겹침 + AI가 같은 물리로 실제 주행한 랩타임
 import fs from 'fs';
 import { TRACKS, buildTrack, gridSlot } from '../public/js/tracks.js';
-import { createKart, placeKart, stepKart, createBot, botInput, C, startBoost } from '../public/js/physics.js';
+import { STATS, createKart, placeKart, stepKart, createBot, botInput, C, startBoost } from '../public/js/physics.js';
 const out = [];
 const only = process.argv[2];
 for (const def of TRACKS) {
@@ -22,7 +22,7 @@ for (const def of TRACKS) {
   let maxSlope = 0; for (let i = 0; i < T.n; i++) maxSlope = Math.max(maxSlope, Math.abs(T.slope[i]));
   const res = { id: def.id, name: def.name, length: Math.round(T.length), minR: +minR.toFixed(1), minAtFrac: +(minAt / T.n).toFixed(2), sharpPct: Math.round(sharp / T.n * 100), straightPct: Math.round(straight / T.n * 100), minGap: +minGap.toFixed(1), overlaps, maxSlope: +maxSlope.toFixed(3), runs: [] };
   for (const rule of [{ infinite: false }, { infinite: true }]) for (const skill of [0.55, 0.95]) {
-    const k = createKart(), b = createBot(skill, skill < 0.9 ? 0.13 : 0); b.lane = 0; b.useShort = process.env.SHORT === '1' && skill > 0.9;
+    const k = createKart(process.env.KART ? STATS[process.env.KART] : undefined), b = createBot(skill, skill < 0.9 ? 0.13 : 0); b.lane = 0; b.useShort = process.env.SHORT === '1' && skill > 0.9;
     placeKart(k, T, gridSlot(T, 0)); k.lap = -1;
     let scT = 0, inner = 0, outer = 0, bumps = 0, jumps = 0, wet = 0, lands = []; let t = 0, laps = [], last = 0, drifts = 0, hits = 0, boosts = 0, insts = 0, maxV = 0, path = [];
     const dt = 1 / 60;
