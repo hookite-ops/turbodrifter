@@ -403,6 +403,7 @@ function onNet(m) {
     case 'fin': if (race && race.online) { const k = race.byId.get(m.id); if (k) { k.finished = true; k.finishTime = m.time; if (!k.me) k.k.finished = true; } } break;
     case 'endIn': if (race) race.endAt = performance.now() + m.ms; break;
     case 'left': if (race && race.online) removeKart(m.id); break;
+    case 'it': if (race && race.online && race.items) race.items.onNet(m, race.byId.get(m.id)); break;
     case 'emote': if (race && race.online) showEmote(race.byId.get(m.id), m.e); else if (net.room) { roomEmotes.set(m.id, { e: m.e, until: performance.now() + 3000 }); renderRoom(); setTimeout(renderRoom, 3050); } break;
     case 'over': net.room = m.room; if (race && race.online) finishRace(m.results.map(r => ({ ...r, me: r.id === net.id }))); break;
   }
@@ -476,7 +477,7 @@ function startRace(cfg) {
   }
   R.autoBot = createBot(0.7);
   // 아이템전
-  R.items = R.rule.item ? makeItems(R, scene) : null;
+  R.items = R.rule.item ? makeItems(R, scene, R.online ? net : null) : null;
   if (R.items) for (const e of R.karts) e.k.noGauge = true;
   document.querySelector('.h-gauge').classList.toggle('items', !!R.items); hudCache.items = '';
   $('t-boost').textContent = R.items ? '아이템' : '부스터';
@@ -1050,7 +1051,7 @@ function init() {
   soloSetup.extra.append($('solo-rivals-lbl'), $('solo-rivals'), $('b-solo-go'));
   const paintBgm = () => { $('b-bgm').textContent = music.on ? '음악 켜짐' : '음악 꺼짐'; };
   $('b-bgm').onclick = () => { music.setOn(!music.on); sfx.click(); paintBgm(); }; paintBgm();
-  roomSetup = makeSetup($('room-setup'), roomCfg, c => net.send({ t: 'cfg', track: c.track, mode: c.mode, laps: c.laps, rev: c.rev | 0 }));
+  roomSetup = makeSetup($('room-setup'), roomCfg, c => net.send({ t: 'cfg', track: c.track, mode: c.mode, laps: c.laps, rev: c.rev | 0 }), { item: true });
   const rv = $('solo-rivals');
   const paintR = () => rv.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === soloCfg.rivals));
   rv.querySelectorAll('button').forEach(b => b.onclick = () => { sfx.click(); soloCfg.rivals = +b.dataset.v; store.set('td_solo', soloCfg); paintR(); }); paintR();

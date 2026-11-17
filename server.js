@@ -70,7 +70,8 @@ server.keepAliveTimeout = 65000;
 // ---------------- 방 ----------------
 const TRACK_LEN = {}; for (const d of TRACKS) TRACK_LEN[d.id] = buildTrack(d).length;
 const TRACK_IDS = Object.keys(TRACK_LEN);
-const MODES = ['speed', 'infinite'];
+const MODES = ['speed', 'infinite', 'item'];
+const ITEM_IDS = ['boost', 'banana', 'shield', 'water', 'missile', 'magnet'], HIT_KINDS = ['banana', 'missile', 'water'];
 const MAX = 8, MAX_ROOMS = 150, MAX_CONN = 500, MAX_PER_IP = 10;
 const GRACE = 20000;            // 연결이 끊겨도 이 시간 동안 자리를 지켜 준다 (재접속)
 const START_DELAY = 8600;       // 트랙 소개 4초 + 카운트다운
@@ -293,6 +294,18 @@ wss.on('connection', (ws, req) => {
           r.endTimer = setTimeout(() => finishRace(r), 10500);
         }
         checkOver(r);
+        break;
+      }
+      case 'it': { // 아이템전: 줍기·사용·피격을 같은 방 사람들에게 (필드를 골라 다시 만든다)
+        if (!r || r.state !== 'racing' || r.mode !== 'item' || !p.racing) break;
+        const num = v => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e6) ? Math.round(v * 100) / 100 : 0;
+        const uid = typeof m.uid === 'string' ? m.uid.slice(0, 24) : '';
+        let o = null;
+        if (m.a === 'box') o = { a: 'box', b: (m.b | 0) & 63 };
+        else if (m.a === 'use' && ITEM_IDS.includes(m.item)) o = { a: 'use', item: m.item, uid, x: num(m.x), y: num(m.y), z: num(m.z), s: num(m.s), lat: num(m.lat), lap: (m.lap | 0) & 15, sp: Math.min(90, num(m.sp)), tg: m.tg | 0 };
+        else if (m.a === 'hit' && HIT_KINDS.includes(m.kind)) o = { a: 'hit', kind: m.kind, uid };
+        else if (m.a === 'block') o = { a: 'block', uid };
+        if (o) cast(r, { t: 'it', id: p.id, ...o }, p);
         break;
       }
       case 'emote': if (r && typeof m.e === 'number') cast(r, { t: 'emote', id: p.id, e: (m.e | 0) & 15 }, p); break;

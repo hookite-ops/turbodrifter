@@ -1,6 +1,6 @@
 // 아이템전: 아이템 상자 줄, 아이템 2칸, 6가지 아이템(부스터·바나나·방어막·물폭탄·미사일·자석), AI 아이템 사용
 import * as THREE from '../lib/three.bundle.js';
-import { pointAt } from './tracks.js';
+import { pointAt, locate } from './tracks.js';
 import { C } from './physics.js';
 
 export const ITEM_IDS = ['boost', 'banana', 'shield', 'water', 'missile', 'magnet'];
@@ -46,7 +46,10 @@ function boxRows(T) {
   return rows;
 }
 
-export function makeItems(R, scene) {
+// net: 온라인일 때 {send(msg)}. 내 카트의 줍기·사용·피격만 알리고, 다른 사람 것은 받은 대로 똑같이 그린다.
+export function makeItems(R, scene, net = null) {
+  let uidN = 0; const newUid = () => (R.me ? R.me.id : 0) + '_' + (++uidN);
+  const tell = (e, msg) => { if (net && e && e.me) net.send({ t: 'it', ...msg }); };
   const T = R.T, grp = new THREE.Group(); scene.add(grp);
   const disp = [];
   // 상자: 반투명 무지개 큐브 + 물음표
@@ -87,36 +90,67 @@ export function makeItems(R, scene) {
     s.push(roll(rf(e))); e.itemHold = 0;
     sfxQ.push({ type: 'get', e }); stats.get++;
   }
-  function hit(e, kind) {
+  function hit(e, kind, uid) {
     const k = e.k;
     if (k.stunT > 0) return false;
-    if (k.shieldT > 0) { k.shieldT = 0; sfxQ.push({ type: 'block', e }); stats.block++; return false; }
+    if (k.shieldT > 0) { k.shieldT = 0; sfxQ.push({ type: 'block', e }); stats.block++; tell(e, { a: 'block', uid }); return false; }
     const h = HIT[kind]; k.stunT = h.t; k.stunKind = h.kind; k.stunMax = h.t;
+    tell(e, { a: 'hit', kind, uid });
     sfxQ.push({ type: 'hit', e, kind }); stats.hit[kind] = (stats.hit[kind] || 0) + 1;
     return true;
   }
   function use(e) {
     const s = e.items; if (!s || !s.length || e.k.stunT > 0) return false;
-    const id = s.shift(), k = e.k;
-    if (id === 'boost') { k.boostT = C.boostTime * 1.15; k.ev.boost = true; }
-    else if (id === 'shield') k.shieldT = 4;
+    const id = s.shift(), k = e.k, uid = newUid();
+    let a;
+    if (id === 'banana') { const b = pointAt(T, k.s - 3.2, k.lat); a = { x: +b.x.toFixed(2), y: +b.y.toFixed(2), z: +b.z.toFixed(2) }; }
+    else if (id === 'water') a = { s: +k.s.toFixed(1), lat: +k.lat.toFixed(2) };
+    else if (id === 'missile') { const tg = aheadOf(e); a = { s: +(k.s + 2).toFixed(1), lap: k.lap, lat: +k.lat.toFixed(2), sp: +Math.max(48, k.speed + 18).toFixed(1), tg: tg ? tg.id : -1 }; }
+    else a = {};
+    if (id === 'boost') { k.boostT = C.boostTime * 1.15; }
+    else if (id === 'magnet') { k.magT = 2.6; k.magTarget = aheadOf(e); }
+    spawn(e, id, uid, a);
+    tell(e, { a: 'use', item: id, uid, ...a });
+    return true;
+  }
+  // 아이템이 나타나는 부분 (내 것이든 받은 것이든 똑같이)
+  function spawn(e, id, uid, a) {
+    if (id === 'shield') e.k.shieldT = 4;
     else if (id === 'banana') {
-      const b = pointAt(T, k.s - 3.2, k.lat), m = new THREE.Mesh(banGeo, banMat); m.position.set(b.x, b.y + 0.32, b.z); m.rotation.set(-Math.PI / 2, 0, Math.random() * 6); grp.add(m);
-      drops.push({ x: b.x, y: b.y, z: b.z, i: b.i, m, age: 0, owner: e });
+      const m = new THREE.Mesh(banGeo, banMat); m.position.set(a.x, a.y + 0.32, a.z); m.rotation.set(-Math.PI / 2, 0, Math.random() * 6); grp.add(m);
+      drops.push({ x: a.x, y: a.y, z: a.z, m, age: 0, owner: e, uid });
       if (drops.length > 14) { const o = drops.shift(); grp.remove(o.m); }
     } else if (id === 'water') {
       const m = new THREE.Mesh(wbGeo, wbMat); grp.add(m);
-      proj.push({ kind: 'water', owner: e, s0: k.s, lat: k.lat, t: 0, dur: 0.9, dist: 32, m });
+      proj.push({ kind: 'water', owner: e, s0: a.s, lat: a.lat, t: 0, dur: 0.9, dist: 32, m, uid });
     } else if (id === 'missile') {
       const m = new THREE.Mesh(misGeo, misMat); grp.add(m);
-      proj.push({ kind: 'missile', owner: e, target: aheadOf(e), s: k.s + 2, lap: k.lap, lat: k.lat, t: 0, m, speed: Math.max(48, k.speed + 18) });
-    } else if (id === 'magnet') { k.magT = 2.6; k.magTarget = aheadOf(e); }
+      proj.push({ kind: 'missile', owner: e, target: R.byId.get(a.tg) || null, s: a.s, lap: a.lap, lat: a.lat, t: 0, m, speed: a.sp, uid });
+    }
     sfxQ.push({ type: 'use', e, id }); stats.use[id] = (stats.use[id] || 0) + 1;
-    return true;
+  }
+  // 받은 메시지
+  function remove(uid) {
+    for (const L of [drops, proj, zones]) { const q = L.findIndex(o => o.uid === uid); if (q >= 0) { grp.remove(L[q].m); L.splice(q, 1); } }
+  }
+  function onNet(m, e) {
+    if (!e || e.me) return;
+    const num = v => Number.isFinite(v) ? v : 0;
+    if (m.a === 'box') { const b = boxes[m.b | 0]; if (b) { b.off = 1.6; b.m.visible = false; } }
+    else if (m.a === 'use' && ITEM_IDS.includes(m.item)) spawn(e, m.item, String(m.uid), { x: num(m.x), y: num(m.y), z: num(m.z), s: num(m.s), lat: num(m.lat), lap: m.lap | 0, sp: num(m.sp) || 48, tg: m.tg });
+    else if (m.a === 'hit' && HIT[m.kind]) { const h = HIT[m.kind]; e.k.stunT = h.t; e.k.stunKind = h.kind; e.k.stunMax = h.t; remove(String(m.uid)); sfxQ.push({ type: 'hit', e, kind: m.kind }); if (m.kind === 'missile') sfxQ.push({ type: 'boom', x: e.k.x, y: e.k.y, z: e.k.z }); }
+    else if (m.a === 'block') { e.k.shieldT = 0; remove(String(m.uid)); sfxQ.push({ type: 'block', e }); }
   }
 
   const L0 = {};
   function update(dt, time) {
+    for (const e of R.karts) {
+      if (!e.remote) continue;
+      const k = e.k;
+      if (e.vis) { k.x = e.vis.x; k.y = e.vis.y; k.z = e.vis.z; const L = locate(T, k.x, k.z, k.ti, 14, L0); k.ti = L.i; k.lat = L.lat; k.s = L.s; }
+      if (k.stunT > 0) k.stunT -= dt;
+      if (k.shieldT > 0) k.shieldT -= dt;
+    }
     // 상자 회전·다시 생기기·줍기
     for (const b of boxes) {
       if (b.off > 0) { b.off -= dt; b.m.visible = b.off <= 0; if (b.off <= 0) b.m.scale.setScalar(0.4); }
@@ -125,7 +159,7 @@ export function makeItems(R, scene) {
         const sc = b.m.scale.x; if (sc < 1) b.m.scale.setScalar(Math.min(1, sc + dt * 3));
         for (const e of R.karts) {
           if (e.remote) continue;
-          const k = e.k; if (Math.abs(k.x - b.x) < 1.7 && Math.abs(k.z - b.z) < 1.7 && Math.abs(k.y - b.y) < 2.2) { b.off = 1.6; b.m.visible = false; give(e); break; }
+          const k = e.k; if (Math.abs(k.x - b.x) < 1.7 && Math.abs(k.z - b.z) < 1.7 && Math.abs(k.y - b.y) < 2.2) { b.off = 1.6; b.m.visible = false; give(e); tell(e, { a: 'box', b: boxes.indexOf(b) }); break; }
         }
       }
     }
@@ -136,7 +170,7 @@ export function makeItems(R, scene) {
       for (const e of R.karts) {
         if (e.remote || gone) continue;
         if (e === d.owner && d.age < 0.6) continue;
-        const k = e.k; if ((k.x - d.x) ** 2 + (k.z - d.z) ** 2 < 1.25 ** 2 && Math.abs(k.y - d.y) < 1.5) { hit(e, 'banana'); gone = true; }
+        const k = e.k; if ((k.x - d.x) ** 2 + (k.z - d.z) ** 2 < 1.25 ** 2 && Math.abs(k.y - d.y) < 1.5) { hit(e, 'banana', d.uid); gone = true; }
       }
       if (gone) { grp.remove(d.m); drops.splice(q, 1); }
     }
@@ -149,7 +183,7 @@ export function makeItems(R, scene) {
         if (u >= 1) {
           grp.remove(p.m); proj.splice(q, 1);
           const m = new THREE.Mesh(bubGeo, bubMat); m.position.set(pt.x, pt.y + 1.4, pt.z); m.scale.setScalar(0.3); grp.add(m);
-          zones.push({ x: pt.x, y: pt.y, z: pt.z, r: 3.6, t: 4.5, m, owner: p.owner, age: 0 });
+          zones.push({ x: pt.x, y: pt.y, z: pt.z, r: 3.6, t: 4.5, m, owner: p.owner, age: 0, uid: p.uid });
           sfxQ.push({ type: 'splash', x: pt.x, y: pt.y, z: pt.z });
         }
       } else {
@@ -164,7 +198,7 @@ export function makeItems(R, scene) {
         p.m.position.set(pt.x, y + 0.8, pt.z); p.m.lookAt(nx.x, y + 0.8, nx.z);
         if (Math.random() < 0.6) sfxQ.push({ type: 'trail', x: pt.x, y: y + 0.8, z: pt.z });
         let done = p.t > 7;
-        if (tgk && !p.target.remote && Math.abs(ds) < 1.8) { hit(p.target, 'missile'); done = true; sfxQ.push({ type: 'boom', x: tgk.x, y: tgk.y, z: tgk.z }); }
+        if (tgk && Math.abs(ds) < 1.8) { if (!p.target.remote) { hit(p.target, 'missile', p.uid); sfxQ.push({ type: 'boom', x: tgk.x, y: tgk.y, z: tgk.z }); } done = true; }
         if (!tgk && p.t > 2.5) done = true;
         if (done) { grp.remove(p.m); proj.splice(q, 1); }
       }
@@ -173,7 +207,7 @@ export function makeItems(R, scene) {
     for (let q = zones.length - 1; q >= 0; q--) {
       const z = zones[q]; z.t -= dt; z.age += dt;
       const sc = Math.min(1, z.age * 4) * z.r * (z.t < 0.4 ? z.t / 0.4 : 1); z.m.scale.setScalar(Math.max(0.01, sc)); z.m.position.y = z.y + sc * 0.45;
-      for (const e of R.karts) { if (e.remote) continue; const k = e.k; if ((k.x - z.x) ** 2 + (k.z - z.z) ** 2 < z.r * z.r && Math.abs(k.y - z.y) < 3 && !(e === z.owner && z.age < 0.5)) { if (hit(e, 'water')) { z.t = Math.min(z.t, 0.35); } } }
+      for (const e of R.karts) { if (e.remote) continue; const k = e.k; if ((k.x - z.x) ** 2 + (k.z - z.z) ** 2 < z.r * z.r && Math.abs(k.y - z.y) < 3 && !(e === z.owner && z.age < 0.5)) { if (hit(e, 'water', z.uid)) { z.t = Math.min(z.t, 0.35); } } }
       if (z.t <= 0) { grp.remove(z.m); zones.splice(q, 1); }
     }
     // 자석: 앞 카트 쪽으로 끌려가며 가속
@@ -219,5 +253,5 @@ export function makeItems(R, scene) {
   }
 
   function dispose() { scene.remove(grp); for (const d of disp) d.dispose && d.dispose(); }
-  return { update, use, pose, botThink, dispose, sfxQ, boxes, give, hit, stats };
+  return { update, use, pose, botThink, dispose, sfxQ, boxes, give, hit, stats, onNet };
 }
