@@ -16,6 +16,7 @@ export const TRACKS = [
       [-240, -35, 0, 7, 12], [-240, -120, 30, 6], [-180, -180, 30, 3], [-48, -180, 15, 0], [-48, -105, 15, 0],
     ]),
     pads: [{ at: { e: 0, t: 0.56 }, lat: 0 }, { at: { e: 7, t: 0.0 }, lat: 0 }],
+    gates: [{ at: { e: 0, t: 0.86 } }, { at: { e: 5, t: 0.5 } }],   // 도로를 가로지르는 2층 건물
     zones: [
       { from: { e: 1, t: 0.2 }, to: { e: 1, t: 0.85 }, kind: 'tunnel', style: 'barn' },
       { from: { e: 7, t: 0.3 }, to: { e: 7, t: 0.47 }, kind: 'water', style: 'stream' },
@@ -37,6 +38,7 @@ export const TRACKS = [
       [-40, 116, 15, 3.5], [-40, -20, 0, 1, 5.4], [-40, -160, 20, 0],
     ]),
     pads: [{ at: { e: 0, t: 0.56 }, lat: 0 }, { at: { e: 3, t: 0.3 }, lat: 2.5 }, { at: { e: 3, t: 0.5 }, lat: -2.5 }],
+    gates: [{ at: { e: 0, t: 0.45 } }, { at: { e: 3, t: 0.78 } }],
     zones: [
       { from: { e: 2, t: 0.15 }, to: { e: 2, t: 0.85 }, kind: 'tunnel', style: 'mine' },
       { from: { e: 2, t: 0.0 }, to: { e: 2, t: 1.0 }, kind: 'cliff', amt: 0.9 },
@@ -62,6 +64,8 @@ export const TRACKS = [
       [-260, 60, 30, 0, 8], [-260, -60, 30, 0, 8], [-150, -150, 30, 0, 9], [0, 0, 0, 0, 10.5], [150, 150, 30, 0, 9],
     ], 0.72),
     pads: [{ at: { e: 2, t: 0.35 }, lat: 0 }, { at: { e: 7, t: 0.08 }, lat: 0 }],
+    ground: 2.5,   // 이보다 높은 도로는 흙을 쌓지 않고 아치 다리로
+    gates: [{ at: { e: 1, t: 0.5 } }, { at: { e: 5, t: 0.5 } }],
     zones: [
       { from: { e: 7, t: 0.12 }, to: { e: 8, t: 0.88 }, kind: 'ice' },
       { from: { c: 5, t: 0.25 }, to: { c: 6, t: 0.75 }, kind: 'tunnel', style: 'icecave' },
@@ -91,6 +95,8 @@ export const TRACKS = [
       [-80, 60, 18, 12], [-80, -180, 18, 0],                                          // 하이웨이 위 다리 → 내리막
     ],
     pads: [{ at: { e: 1, t: 0.25 }, lat: 0 }, { at: { e: 7, t: 0.15 }, lat: 0 }, { at: { e: 8, t: 0.62 }, lat: 2.6 }, { at: { e: 8, t: 0.74 }, lat: -2.6 }],
+    ground: 2.5,   // 이보다 높은 도로는 흙을 쌓지 않고 아치 다리로
+    gates: [{ at: { e: 0, t: 0.26 } }, { at: { e: 8, t: 0.45 } }],
     zones: [
       { from: { c: 2, t: 0 }, to: { c: 7, t: 1 }, kind: 'garage' },
       { from: { e: 7, t: 0.6 }, to: { e: 7, t: 0.86 }, kind: 'tunnel', style: 'neon' },

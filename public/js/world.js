@@ -194,7 +194,9 @@ export function buildWorld(T, opt = {}) {
   const hsh = (ix, iz) => perm[((ix * 73856093) ^ (iz * 19349663)) & 4095];
   const vn = (x, z) => { const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz, u = fx * fx * (3 - 2 * fx), v = fz * fz * (3 - 2 * fz); const a = hsh(ix, iz), b = hsh(ix + 1, iz), c = hsh(ix, iz + 1), d = hsh(ix + 1, iz + 1); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; };
   const noise = (x, z) => vn(x / 95, z / 95) * 0.65 + vn(x / 33, z / 33) * 0.35;
+  const GCAP = T.def.ground ?? 1e9;
   const heightFrom = (x, z, edge, base, cl = 0) => {
+    if (base > GCAP) base = GCAP;   // 다리 구간: 땅이 도로를 따라 올라가지 않아 아래가 비고 아치가 보인다
     let h = base * (1 - smooth(12, 75, edge)) - 0.45 * (1 - smooth(2.5, 9, edge)) + smooth(5, 60, edge) * (noise(x, z) - 0.33) * th.amp;
     if (cl > 0) h += cl * (smooth(0.8, 7, edge) * (14 + noise(x * 2, z * 2) * 16) * (1 - smooth(45, 90, edge) * 0.5));   // 절벽: 도로 바로 옆에서 솟는다
     return streams.length ? streamCut(x, z, h) : h;
@@ -283,9 +285,37 @@ export function buildWorld(T, opt = {}) {
   const box = new THREE.BoxGeometry(1, 1, 1); disposables.push(box);
   if (hasHigh) {
     L(strip(T, i => T.hw[i] + WT, SK, i => -(T.hw[i] + WT), SK, 16), deckMat);
+    // 아치 다리: 고가 구간 양쪽 가장자리에 땅까지 내려오는 아치 벽 (아래로 다른 도로가 지나는 곳은 비운다)
+    const arcCol = { village: ['#cfc6b2', '#a89f8a'], desert: ['#c98a55', '#9c6338'], ice: ['#dff3ff', '#a9d6f2'], city: ['#3a3e58', '#2ef2ff'] }[theme] || ['#bbb', '#888'];
+    const arcTex = canvasTex(256, 256, (c, w, h) => {
+      // 가로(u) = 위(도로)→아래(땅), 세로(v) = 도로 방향 16m 한 칸
+      c.fillStyle = arcCol[0]; c.fillRect(0, 0, w, h);
+      if (theme !== 'city') { c.strokeStyle = 'rgba(0,0,0,0.13)'; c.lineWidth = 2; for (let x = 0; x < w; x += 18) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); for (let y = (x / 18) % 2 ? 0 : 20; y < h; y += 40) { c.beginPath(); c.moveTo(x, y); c.lineTo(x + 18, y); c.stroke(); } } }
+      c.fillStyle = arcCol[1]; c.fillRect(0, 0, 14, h);                      // 위쪽 띠
+      c.globalCompositeOperation = 'destination-out'; c.beginPath();          // 아치 구멍
+      const top = w * 0.3; c.moveTo(w + 2, h * 0.17); c.lineTo(top + w * 0.12, h * 0.17);
+      c.ellipse(top + w * 0.12, h * 0.5, w * 0.12, h * 0.33, 0, -Math.PI / 2, Math.PI / 2, true);
+      c.lineTo(w + 2, h * 0.83); c.closePath(); c.fill();
+      c.globalCompositeOperation = 'source-over';
+    });
+    const arcM = lam({ map: arcTex, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide });
+    const roadBelow = (x, z, i, y) => { const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL);
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const l = grid.get((gx + a) + ',' + (gz + b)); if (!l) continue;
+        for (const j of l) { if (j >= N) continue; let d = Math.abs(i - j); d = Math.min(d, N - d); if (d < 20) continue; if (PY[j] < y - 2 && Math.hypot(PX[j] - x, PZ[j] - z) < PW[j] + 2.5) return true; } }
+      return false; };
+    const arcOn = [new Uint8Array(N), new Uint8Array(N)];
+    for (let i = 0; i < N; i++) {
+      if (gap[i] < 2.6 || T.garage[i] || T.tunnel[i]) continue;
+      for (const [k, sd] of [[0, 1], [1, -1]]) { const e = sd * (T.hw[i] + WT), ex = T.x[i] + T.nx[i] * e, ez = T.z[i] + T.nz[i] * e; if (!roadBelow(ex, ez, i, T.y[i])) arcOn[k][i] = 1; }
+    }
+    for (const [k, sd] of [[0, 1], [1, -1]]) for (const [i0, cnt] of runs(T, i => arcOn[k][i])) {
+      if (cnt < 4) continue;
+      const e = i => sd * (T.hw[i] + WT);
+      L(strip(T, e, SK, e, i => Math.min(SK - 0.5, heightAt(T.x[i] + T.nx[i] * e(i), T.z[i] + T.nz[i] * e(i)) - T.y[i] - 0.4), 16, 0, 1, i0, cnt), arcM);
+    }
     const pillars = [];
     for (let i = 0; i < N; i += 8) {
-      if (gap[i] < 2.4 || nearTrack(T.x[i], T.z[i], 3, i, 30)) continue;
+      if (gap[i] < 2.4 || nearTrack(T.x[i], T.z[i], 3, i, 30) || arcOn[0][i] || arcOn[1][i]) continue;
       const base = heightAt(T.x[i], T.z[i]), top = T.y[i] + SK;
       pillars.push({ x: T.x[i], z: T.z[i], y: (top + base) / 2, sx: 2.6, sy: top - base + 1, sz: 2.6, ry: Math.atan2(T.tx[i], T.tz[i]) });
     }

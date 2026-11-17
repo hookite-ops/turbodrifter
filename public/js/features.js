@@ -326,6 +326,78 @@ export function buildFeatures(T, H) {
     if (lines.length) g.add(instanced(box, basic({ color: '#ffffff' }), lines));
   }
 
+  // ----- 게이트 하우스: 도로 양쪽 건물이 2층에서 이어지고, 그 아래 아치 통로로 달린다 (테마별 모양) -----
+  {
+    const theme = T.def.theme;
+    const ST = {
+      village: { wall: '#fff1d6', beam: '#7a4a2a', win: '#6fb6ff', roof: '#e8503f', trim: '#7a4a2a' },
+      desert: { wall: '#d9905a', beam: '#8a5a34', win: '#3a2418', roof: '#c47a45', trim: '#b8693a' },
+      ice: { wall: '#e6f6ff', beam: '#9fd2f0', win: '#4fa8e8', roof: '#cfeaff', trim: '#bfe4fb' },
+      city: { wall: '#2a2d55', beam: '#2ef2ff', win: '#ffe9a8', roof: '#1c1e38', trim: '#ff3fa4' },
+    }[theme] || { wall: '#ddd', beam: '#555', win: '#79c', roof: '#a44', trim: '#555' };
+    const wallTex = canvasTex(128, 128, (c, w, h) => {
+      c.fillStyle = ST.wall; c.fillRect(0, 0, w, h);
+      if (theme === 'village') { c.fillStyle = ST.beam; c.fillRect(0, 0, w, 6); c.fillRect(0, h - 6, w, 6); c.fillRect(0, 0, 6, h); c.fillRect(w - 6, 0, 6, h); c.lineWidth = 6; c.strokeStyle = ST.beam; c.beginPath(); c.moveTo(0, h); c.lineTo(w / 2, h / 2); c.lineTo(w, h); c.stroke(); }
+      if (theme === 'desert') for (let k = 0; k < 120; k++) { c.fillStyle = `rgba(0,0,0,${0.03 + R() * 0.05})`; c.fillRect(R() * w, R() * h, 3 + R() * 6, 2 + R() * 3); }
+      if (theme === 'ice') { c.strokeStyle = 'rgba(120,180,220,0.45)'; c.lineWidth = 2; for (let y = 0; y < h; y += 21) { c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke(); for (let x = (y / 21) % 2 ? 0 : 21; x < w; x += 42) { c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + 21); c.stroke(); } } }
+      const ww = theme === 'ice' ? 12 : 30, wh = theme === 'ice' ? 34 : 30;
+      c.fillStyle = ST.win; c.fillRect(w / 2 - ww / 2, h / 2 - wh / 2 - 6, ww, wh);
+      if (theme === 'village') { c.strokeStyle = '#fff'; c.lineWidth = 3; c.strokeRect(w / 2 - ww / 2, h / 2 - wh / 2 - 6, ww, wh); }
+      if (theme === 'city') { c.fillStyle = ST.beam; c.fillRect(0, h - 4, w, 4); }
+    });
+    const wallM = theme === 'city' ? (() => { const m = new THREE.MeshLambertMaterial({ map: wallTex, emissive: '#ffffff', emissiveMap: wallTex, emissiveIntensity: 0.55 }); disposables.push(m); return m; })() : lam({ map: wallTex });
+    const trimM = theme === 'city' ? basic({ color: ST.trim }) : lam({ color: ST.trim });
+    const roofM = lam({ color: ST.roof, side: THREE.DoubleSide });
+    for (const gd of (T.def.gates || [])) {
+      const i = T.iOf(gd.at), hw = T.hw[i], S = hw + 0.6, Wb = 6.5, Lb = 9;
+      let yMax = -1e9; for (let o = -3; o <= 3; o++) yMax = Math.max(yMax, T.y[(i + o + N) % N]);
+      const y0 = T.y[i], bot = yMax - y0 + 6.2, flo = bot + 3.6;          // 통로 높이 6.2m, 2층 높이 3.6m
+      const L2 = n => [T.x[i] + T.nx[i] * n, T.z[i] + T.nz[i] * n];
+      const sides = [1, -1].map(sd => L2(sd * (S + Wb / 2 + 0.2)));
+      const rr = Math.hypot(Wb, Lb) / 2;
+      if (sides.some(([x, z]) => H.nearTrack(x, z, rr - 0.6, i, 10) || !H.fits(x, z, rr))) continue;
+      for (const [x, z] of sides) H.take(x, z, rr, 'gate');
+      const grp = new THREE.Group(); grp.position.set(T.x[i], y0, T.z[i]); grp.rotation.y = dirAt(i);
+      const add = (geo, mat, x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = hq; m.receiveShadow = true; grp.add(m); return m; };
+      const topY = theme === 'city' ? flo + 14 : flo;
+      for (const sd of [1, -1]) {
+        const [x, z] = sides[sd > 0 ? 0 : 1], gy = Math.min(H.heightAt(x, z), 0 + y0) - y0 - 0.6;
+        add(box, wallM, sd * (S + Wb / 2 + 0.2), (gy + topY) / 2, 0, Wb, topY - gy, Lb);
+      }
+      // 2층 다리 부분 + 아치 테두리
+      add(box, wallM, 0, (bot + flo) / 2, 0, S * 2 + 0.4, flo - bot, Lb);
+      const archShape = new THREE.Shape(); const ry = 1.7, ab = bot - ry - 0.05;
+      archShape.moveTo(-S, ab); archShape.lineTo(-S, bot + 0.02); archShape.lineTo(S, bot + 0.02); archShape.lineTo(S, ab);
+      archShape.absellipse(0, ab, S, ry, 0, Math.PI, false);
+      const ag = new THREE.ExtrudeGeometry(archShape, { depth: 0.7, bevelEnabled: false }); disposables.push(ag);
+      for (const zz of [Lb / 2 - 0.05, -Lb / 2 - 0.65]) { const m = new THREE.Mesh(ag, trimM); m.position.z = zz; m.castShadow = hq; grp.add(m); }
+      // 지붕 (테마별)
+      const W2 = S + Wb + 0.6;
+      if (theme === 'village') {
+        const rs = new THREE.Shape(); rs.moveTo(-W2 - 0.6, 0); rs.lineTo(W2 + 0.6, 0); rs.lineTo(0, 4.2); rs.closePath();
+        const rg = new THREE.ExtrudeGeometry(rs, { depth: Lb + 1.2, bevelEnabled: false }); disposables.push(rg);
+        const r = new THREE.Mesh(rg, roofM); r.position.set(0, flo, -(Lb + 1.2) / 2); r.castShadow = hq; grp.add(r);
+        add(box, lam({ color: '#b0553f' }), W2 - 3, flo + 3.6, 1.5, 0.9, 2.6, 0.9);
+      } else if (theme === 'desert') {
+        add(box, roofM, 0, flo + 0.4, 0, W2 * 2, 0.8, Lb + 0.6);
+        const viga = new THREE.CylinderGeometry(0.18, 0.18, 1, 6); viga.rotateX(Math.PI / 2); disposables.push(viga);
+        for (let k = -3; k <= 3; k++) add(viga, lam({ color: ST.beam }), k * (W2 / 3.4), flo - 0.6, 0, 1, 1, Lb + 2.2);
+        for (const sd of [1, -1]) { const lx = sd * (W2 + 0.35); for (const lz of [-0.6, 0.6]) add(box, lam({ color: ST.beam }), lx, bot / 2, lz, 0.14, bot + 2, 0.14); for (let k = 0; k < 9; k++) add(box, lam({ color: ST.beam }), lx, 0.6 + k * (bot / 8), 0, 0.1, 0.1, 1.2); }
+      } else if (theme === 'ice') {
+        add(box, roofM, 0, flo + 0.3, 0, W2 * 2, 0.6, Lb + 0.4);
+        for (let k = -W2 + 1; k <= W2 - 1; k += 2.2) for (const zz of [Lb / 2 - 0.3, -Lb / 2 + 0.3]) add(box, roofM, k, flo + 1.3, zz, 1.1, 1.4, 0.6);
+        for (const sd of [1, -1]) { const tg = new THREE.ConeGeometry(Wb * 0.62, 6, 8); disposables.push(tg); const m = new THREE.Mesh(tg, lam({ color: '#9fd8ff' })); m.position.set(sd * (S + Wb / 2 + 0.2), flo + 3.6, 0); m.castShadow = hq; grp.add(m); }
+      } else {
+        // 시티: 다리 정면에 네온 간판
+        const sign = canvasTex(512, 128, (c, w, h) => { c.fillStyle = '#0d0e1e'; c.fillRect(0, 0, w, h); c.strokeStyle = '#ff3fa4'; c.lineWidth = 8; c.strokeRect(6, 6, w - 12, h - 12); c.fillStyle = '#2ef2ff'; c.font = '900 76px "Black Han Sans", "Arial Black", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('NEON GATE', w / 2, h / 2 + 4); }, false);
+        const sm = basic({ map: sign, side: THREE.DoubleSide }), pg = new THREE.PlaneGeometry(S * 2, (flo - bot) * 0.8); disposables.push(pg);
+        for (const [zz, r0] of [[Lb / 2 + 0.05, 0], [-Lb / 2 - 0.05, Math.PI]]) { const m = new THREE.Mesh(pg, sm); m.position.set(0, (bot + flo) / 2, zz); m.rotation.y = r0; grp.add(m); }
+        add(box, trimM, 0, topY + 0.3, 0, W2 * 2 + 0.4, 0.6, Lb + 0.4);
+      }
+      g.add(grp);
+    }
+  }
+
   // ----- 장애물 -----
   const hayTex = canvasTex(128, 64, (c, w, h) => { c.fillStyle = '#e9bd4f'; c.fillRect(0, 0, w, h); for (let k = 0; k < 200; k++) { c.strokeStyle = `rgba(${R() < 0.5 ? '120,80,20' : '255,240,170'},${0.25 + R() * 0.3})`; c.beginPath(); const x = R() * w, y = R() * h; c.moveTo(x, y); c.lineTo(x + (R() - 0.5) * 14, y + (R() - 0.5) * 4); c.stroke(); } c.fillStyle = '#c0392b'; c.fillRect(0, 20, w, 4); c.fillRect(0, 42, w, 4); });
   const hayTop = canvasTex(64, 64, (c, w, h) => { c.fillStyle = '#d8a83e'; c.fillRect(0, 0, w, h); c.strokeStyle = 'rgba(110,70,20,0.5)'; for (let r = 4; r < 32; r += 4) { c.beginPath(); c.arc(32, 32, r, 0, 7); c.stroke(); } }, false);
