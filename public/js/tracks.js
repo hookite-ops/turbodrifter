@@ -17,6 +17,11 @@ export const TRACKS = [
     ]),
     pads: [{ at: { e: 0, t: 0.56 }, lat: 0 }, { at: { e: 7, t: 0.0 }, lat: 0 }],
     gates: [{ at: { e: 0, t: 0.86 } }, { at: { e: 5, t: 0.5 } }],   // 도로를 가로지르는 2층 건물
+    // 지름길: 직각 코너 두 개를 건너뛰는 농장 샛길. 좁고 짚더미가 있어 실수하면 손해
+    shortcuts: [{ from: 0.2488, to: 0.381, hw: 4.2, kind: 'dirt',
+      pts: [[137, 94, 10], [162, 88, 12], [188, 70, 12], [199, 58, 10]],
+      obs: [{ at: 0.4, lat: 2.2, r: 1.0, kind: 'hay', soft: true }, { at: 0.64, lat: -2.2, r: 1.0, kind: 'hay', soft: true }],
+      pads: [{ at: 0.8, lat: 0 }] }],
     zones: [
       { from: { e: 1, t: 0.2 }, to: { e: 1, t: 0.85 }, kind: 'tunnel', style: 'barn' },
       { from: { e: 7, t: 0.3 }, to: { e: 7, t: 0.47 }, kind: 'water', style: 'stream' },
@@ -76,7 +81,8 @@ export const TRACKS = [
     // 지름길: 서쪽 고리 안쪽 얼어붙은 연못을 가로지른다 (빙판이라 미끄럽다)
     shortcuts: [{ from: { e: 4, t: 0.55 }, to: { e: 6, t: 0.45 }, hw: 4.2, surf: 'ice', kind: 'ice',
       pts: [[-158, 40, 14], [-161, -40, 14]],
-      obs: [{ at: 0.5, lat: 1.5, r: 1.1, kind: 'rock' }] }],
+      obs: [{ at: 0.5, lat: 1.5, r: 1.1, kind: 'rock' }],
+      pads: [{ at: 0.8, lat: 0 }] }],
     movers: [
       { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.35 }, a: 7.5, period: 5.2, phase: 0, r: 1.0 },
       { kind: 'cross', model: 'penguin', at: { e: 8, t: 0.62 }, a: 7.5, period: 4.4, phase: 0.5, r: 1.0 },
@@ -97,6 +103,11 @@ export const TRACKS = [
     pads: [{ at: { e: 1, t: 0.25 }, lat: 0 }, { at: { e: 7, t: 0.15 }, lat: 0 }, { at: { e: 8, t: 0.62 }, lat: 2.6 }, { at: { e: 8, t: 0.74 }, lat: -2.6 }],
     ground: 2.5,   // 이보다 높은 도로는 흙을 쌓지 않고 아치 다리로
     gates: [{ at: { e: 0, t: 0.26 } }, { at: { e: 8, t: 0.45 } }],
+    // 지름길: 내리막 끝에서 뒷골목으로 빠져 직각 세 번 → 하이웨이 차들 사이로 합류
+    shortcuts: [{ from: 0.8022, to: 0.930, hw: 4.2, kind: 'alley',
+      pts: [[-71, -128, 10], [-46, -133, 8], [-46, -158, 8], [-13, -158, 8]],
+      obs: [{ at: 0.42, lat: 2.3, r: 0.8, kind: 'cone', soft: true }, { at: 0.58, lat: -2.3, r: 0.8, kind: 'cone', soft: true }],
+      pads: [{ at: 0.8, lat: 0 }] }],
     zones: [
       { from: { c: 2, t: 0 }, to: { c: 7, t: 1 }, kind: 'garage' },
       { from: { e: 7, t: 0.6 }, to: { e: 7, t: 0.86 }, kind: 'tunnel', style: 'neon' },

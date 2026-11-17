@@ -227,8 +227,9 @@ export function stepKart(k, inp, dt, T, rule) {
     const g = (L.lat > 0 ? T.gapL : T.gapR)[L.i];
     if (g) {
       const S = T.shortcuts[g - 1], d0 = Math.abs(L.i - S.iA), dA = Math.min(d0, T.n - d0);
-      const Ls = locate(S, k.x, k.z, dA < 40 ? 0 : S.n - 1, 30, _lm);
-      if (Math.abs(Ls.lat) < S.hw[Ls.i] + 1.2 && Ls.s < S.length - 1) { k.sc = g; P = S; L = Object.assign(k._loc, Ls); }
+      // 입구 쪽 구멍으로만 들어간다. 출구 쪽 구멍은 본 트랙 벽처럼 막는다 (거꾸로 들어가지 않게)
+      const Ls = dA < 40 ? locate(S, k.x, k.z, 0, 30, _lm) : null;
+      if (Ls && Math.abs(Ls.lat) < S.hw[Ls.i] + 1.2 && Ls.s < S.length * 0.5) { k.sc = g; P = S; L = Object.assign(k._loc, Ls); }
     }
   }
   if (k.sc) { k.pi = L.i; k.ps = L.s; k.s = ((P.sA + L.s / P.length * (P.sB - P.sA)) % T.length + T.length) % T.length; k.ti = Math.floor(k.s / T.ds) % T.n; k.lat = 0; }
@@ -366,7 +367,7 @@ export function pushApart(k, ox, oz, oy, ovx, ovz) {
 // ---------- AI 드라이버 (연습전·트랙 검증용) ----------
 // lag: 반응 지연(초). 사람처럼 늦게 반응해도 달릴 수 있는지 검증할 때 쓴다.
 export function createBot(skill = 0.8, lag = null) {
-  return { skill, useShort: skill > 0.75 && Math.random() < 0.6, lane: (Math.random() - 0.5) * 6, phase: 0, holdT: 0, wasDrift: false, instDelay: 0, boostWait: 0, stuckT: 0, revT: 0, t: Math.random() * 10, lag: lag == null ? (1 - skill) * 0.12 : lag, q: [] };
+  return { skill, useShort: false, lane: (Math.random() - 0.5) * 6, phase: 0, holdT: 0, wasDrift: false, instDelay: 0, boostWait: 0, stuckT: 0, revT: 0, t: Math.random() * 10, lag: lag == null ? (1 - skill) * 0.12 : lag, q: [] };
 }
 export function botInput(b, k, T, dt, time = 0) {
   b.t += dt;
@@ -385,18 +386,18 @@ export function botInput(b, k, T, dt, time = 0) {
   // 앞의 장애물 피하기 (실력이 낮을수록 늦게 본다)
   if (P.obs.length || P.movers.length) {
     const see = 10 + k.speed * (0.7 + b.skill * 0.6), room = P.hw[li] - 2.2;
-    const avoid = (s, lat, r) => {
-      let d = s - ks; if (!open) { if (d < -P.length / 2) d += P.length; else if (d > P.length / 2) d -= P.length; }
-      if (d < -1 || d > see) return;
-      const need = r + 2.3;
-      if (Math.abs(tl - lat) >= need) return;
-      const L1 = lat + need, R1 = lat - need;
-      const okL = L1 < room, okR = R1 > -room;
+    // 앞에 있는 장애물을 가까운 순서로 모아, 가장 가까운 것부터 피한다 (멀리 있는 것 때문에 가까운 것에 붙지 않게)
+    const ahead = [];
+    const look2 = (s, lat, r) => { let d = s - ks; if (!open) { if (d < -P.length / 2) d += P.length; else if (d > P.length / 2) d -= P.length; } if (d >= -1 && d <= see) ahead.push({ d, lat, r }); };
+    for (const o of P.obs) look2(o.s, o.lat, o.r);
+    for (const m of P.movers) { moverAt(P, m, time + 0.4, _mp); if (_mp.edge > 0.3) look2(_mp.s, _mp.lat, m.r + (m.type === 'cross' ? Math.abs(m.a) * 0.3 : 0)); }
+    ahead.sort((a, b) => a.d - b.d);
+    for (const o of ahead) {
+      const need = o.r + 2.3;
+      if (Math.abs(tl - o.lat) >= need) continue;
+      const L1 = o.lat + need, R1 = o.lat - need, okL = L1 < room, okR = R1 > -room;
       tl = okL && okR ? (Math.abs(L1 - tl) < Math.abs(R1 - tl) ? L1 : R1) : okL ? L1 : okR ? R1 : tl;
-    };
-    for (let pass = 0; pass < 2; pass++) {
-      for (const o of P.obs) avoid(o.s, o.lat, o.r);
-      for (const m of P.movers) { moverAt(P, m, time + 0.4, _mp); if (_mp.edge > 0.3) avoid(_mp.s, _mp.lat, m.r + (m.type === 'cross' ? Math.abs(m.a) * 0.3 : 0)); }
+      break;   // 다음 장애물은 이걸 지나고 나서 생각한다
     }
   }
   let tx = P.x[li] + P.nx[li] * tl, tz = P.z[li] + P.nz[li] * tl;
@@ -409,6 +410,12 @@ export function botInput(b, k, T, dt, time = 0) {
       if (b.commit === S.id + 1 && d < -60) b.commit = 0;
       if ((d > -3 && d < look + 25) || b.commit === S.id + 1) {
         b.commit = S.id + 1;
+        if (d > 5) {   // 입구 전: 본 트랙을 따라가며 입구 쪽 차선으로 미리 붙는다
+          if (S.side === undefined) { const q = Math.min(6, S.n - 1); S.side = Math.sign((S.x[q] - T.x[S.iA]) * T.nx[S.iA] + (S.z[q] - T.z[S.iA]) * T.nz[S.iA]) || 1; }
+          const ti = Math.floor(Math.min(k.s + look, S.sA) / T.ds) % T.n, lat2 = S.side * Math.max(0, T.hw[ti] - 2.4) * clamp(1 - (d - 5) / 40, 0, 1);
+          tx = T.x[ti] + T.nx[ti] * lat2; tz = T.z[ti] + T.nz[ti] * lat2;
+          break;
+        }
         // 지름길 위 내 위치(입구 지난 뒤엔 실제 위치)에서 look만큼 앞
         let sp = Math.max(0, -d); if (d < 0) { const Ls = locate(S, k.x, k.z, Math.round(sp / S.ds), 20, _lm); sp = Ls.s; }
         const si = Math.max(2, Math.min(S.n - 1, Math.round((sp + look - Math.max(0, d)) / S.ds)));
