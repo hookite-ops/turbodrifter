@@ -13,6 +13,43 @@ const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a
 const fmt = ms => { if (ms == null) return '리타이어'; const m = Math.floor(ms / 60000), s = Math.floor(ms / 1000) % 60, c = Math.floor(ms / 10) % 100; return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`; };
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
 
+// ---------------- 감정 표현 (숫자키 1~4) ----------------
+const EMOTES = [
+  { t: '좋아!', bg: '#35d49a' }, { t: 'ㅋㅋㅋ', bg: '#ffd21e' }, { t: '헉!', bg: '#29b6ff' }, { t: '비켜~', bg: '#ff3d2e' },
+];
+const emoteTex = EMOTES.map(em => {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128; const x = c.getContext('2d');
+  x.fillStyle = em.bg; x.beginPath(); x.roundRect(14, 10, 228, 84, 26); x.fill();
+  x.beginPath(); x.moveTo(108, 92); x.lineTo(128, 120); x.lineTo(148, 92); x.fill();
+  x.strokeStyle = '#14161f'; x.lineWidth = 6; x.beginPath(); x.roundRect(14, 10, 228, 84, 26); x.stroke();
+  x.fillStyle = '#14161f'; x.font = '900 52px "Black Han Sans", Jua, "Malgun Gothic", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(em.t, 128, 54);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+});
+let lastEmote = 0;
+const roomEmotes = new Map();   // 대기실: 플레이어 id → { e, until }
+function showEmote(e, idx) {    // 경기 중: 카트 머리 위 말풍선 2.2초
+  if (!e || !e.model) return;
+  if (e.bubble) { e.model.group.remove(e.bubble.sp); e.bubble.sp.material.dispose(); }
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: emoteTex[idx % EMOTES.length], transparent: true, depthWrite: false, fog: false }));
+  sp.scale.set(3.6, 1.8, 1); sp.position.y = e.me ? 2.35 : 3.8; sp.renderOrder = 6; e.model.group.add(sp);   // 내 카트는 머리 위, 다른 카트는 이름표 위
+  e.bubble = { sp, t: 0 };
+}
+function tickEmotes(R, dt) {
+  for (const e of R.karts) {
+    const b = e.bubble; if (!b) continue;
+    b.t += dt; const k = b.t < 0.12 ? b.t / 0.12 : 1;     // 짧게 튀어나왔다가
+    b.sp.scale.set(3.6 * (0.8 + 0.2 * k), 1.8 * (0.8 + 0.2 * k), 1);
+    b.sp.material.opacity = b.t > 1.9 ? Math.max(0, 1 - (b.t - 1.9) / 0.3) : 1;
+    if (b.t > 2.2) { e.model.group.remove(b.sp); b.sp.material.dispose(); e.bubble = null; }
+  }
+}
+function sendEmote(idx) {
+  const now = performance.now(); if (now - lastEmote < 1200) return; lastEmote = now;   // 도배 방지
+  if (race) { showEmote(race.me, idx); if (race.online) net.send({ t: 'emote', e: idx }); }
+  else if (screen === 'room' && net.connected) { roomEmotes.set(net.id, { e: idx, until: now + 3000 }); net.send({ t: 'emote', e: idx }); renderRoom(); setTimeout(renderRoom, 3050); }
+  sfx.click();
+}
+
 // ---------------- 기록·고스트 (혼자 달리기) ----------------
 const recKey = c => `${c.track}|${c.mode}|${c.laps}|${c.track === 'neon' ? 'm3' : 'm2'}`;   // m2: 맵을 다시 만든 뒤의 기록
 const records = store.get('td_rec', {});
@@ -133,6 +170,7 @@ window.addEventListener('keydown', e => {
   sfx.init(); let used = true;
   switch (e.code) {
     case 'KeyM': music.setOn(!music.on); toast(music.on ? '음악 켬' : '음악 끔'); break;
+    case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Numpad1': case 'Numpad2': case 'Numpad3': case 'Numpad4': sendEmote(+e.code.slice(-1) - 1); break;
     case 'ArrowLeft': key.left = true; break;
     case 'ArrowRight': key.right = true; break;
     case 'ArrowUp': key.accel = true; tap.accel = true; break;
@@ -325,6 +363,8 @@ function renderRoom() {
       const kick = host && p.id !== net.id && r.state === 'lobby' ? '<button class="kick" aria-label="내보내기" title="내보내기">✕</button>' : '';
       d.innerHTML = `<span class="sw" style="background:${COLORS[p.color % COLORS.length].hex}"></span><span class="nm"></span>${st}${kick}`;
       d.querySelector('.nm').textContent = `${p.name}${p.id === net.id ? ' (나)' : ''}`;
+      const em = roomEmotes.get(p.id);
+      if (em && em.until > performance.now()) { const b = document.createElement('span'); b.className = 'emo'; b.textContent = EMOTES[em.e % EMOTES.length].t; b.style.background = EMOTES[em.e % EMOTES.length].bg; d.querySelector('.nm').after(b); }
       const kb = d.querySelector('.kick'); if (kb) kb.onclick = () => { sfx.click(); net.send({ t: 'kick', id: p.id }); };
     }
     pl.appendChild(d);
@@ -360,6 +400,7 @@ function onNet(m) {
     case 'fin': if (race && race.online) { const k = race.byId.get(m.id); if (k) { k.finished = true; k.finishTime = m.time; if (!k.me) k.k.finished = true; } } break;
     case 'endIn': if (race) race.endAt = performance.now() + m.ms; break;
     case 'left': if (race && race.online) removeKart(m.id); break;
+    case 'emote': if (race && race.online) showEmote(race.byId.get(m.id), m.e); else if (net.room) { roomEmotes.set(m.id, { e: m.e, until: performance.now() + 3000 }); renderRoom(); setTimeout(renderRoom, 3050); } break;
     case 'over': net.room = m.room; if (race && race.online) finishRace(m.results.map(r => ({ ...r, me: r.id === net.id }))); break;
   }
 }
@@ -658,6 +699,7 @@ function updateRace(dt, now) {
   if (simulate && (k.draftT > 0.15 || k.draftB > 0)) { R.draftAcc = (R.draftAcc || 0) + dt; if (R.draftAcc > 0.05) { R.draftAcc = 0; R.fx.streakAt && R.fx.streakAt(k, k.draftB > 0); } }
   // 물 튀김
   if (simulate) for (const e of R.karts) { const q = e.k; if (!e.remote && q.surf === 2 && Math.abs(q.speed) > 5 && Math.random() < dt * 30) R.fx.splash(q.x, q.y, q.z, q.mv, q.speed); }
+  tickEmotes(R, dt);
   R.fx.update(simulate ? dt : 0, viewH, camera.fov);
   R.world.update(tt, k.x, k.z, R.rule.time || 0);
 
@@ -803,6 +845,7 @@ function botLap(R, e) {
   if (e.k.ev.lap >= R.laps) {
     e.finished = true; e.finishTime = Math.round(R.time * 1000); e.k.finished = true;
     if (!R.endAt) R.endAt = performance.now() + 10000;
+    if (Math.random() < 0.5) showEmote(e, Math.random() < 0.6 ? 0 : 1);
   }
 }
 
@@ -899,6 +942,8 @@ const soloCfg = Object.assign({ track: 'village', mode: 'speed', laps: 3, rivals
 if (![1, 2, 3].includes(soloCfg.laps)) soloCfg.laps = 3;   // 5바퀴를 뺀 뒤 저장값 정리
 function init() {
   buildMenu();
+  // 대기실 감정 표현 버튼 (터치·마우스)
+  EMOTES.forEach((em, i) => { const b = document.createElement('button'); b.textContent = `${i + 1} ${em.t}`; b.style.background = em.bg; b.onclick = () => sendEmote(i); $('emo-bar').appendChild(b); });
   // 조작법 탭
   for (const b of document.querySelectorAll('#help-tabs button')) b.onclick = () => {
     sfx.click();
