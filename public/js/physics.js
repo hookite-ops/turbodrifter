@@ -29,7 +29,6 @@ export const C = {
   spinDelay: 0.12, spinRate: 2.6, spinMax: 2.75,   // 스핀턴: 드리프트 중 ↑를 떼면 차가 돌아간다
   hitGauge: 0.14,                   // 벽에 세게 박으면 게이지를 잃는다 (무한 부스터전 제외)
   draftCharge: 1.5, draftTime: 1.2, draftSpeed: 5, draftCool: 2.5,   // 드래프트: 앞 카트 뒤를 1.5초 따라가면 순간 가속
-  catchUp: 0.03,                    // 뒤처진 카트 보정: 1등과 멀수록 최고 속도 최대 +3%
 };
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
@@ -49,7 +48,7 @@ export function createKart() {
     drifting: false, driftDir: 0, driftT: 0, slip: 0, kick: 0, armed: false, pendDir: 0,
     gauge: 0, boosts: 0, boostT: 0, instT: 0, instWin: 0,
     ti: 0, lat: 0, s: 0, lap: -1, prog: 0, wrongT: 0,
-    hitT: 0, padT: 0, airT: 0, air: false, vy: 0, surf: 0, bumpT: 0, sc: 0, pi: 0, ps: 0, prevSc: 0, draftT: 0, draftB: 0, draftCd: 0, catch: 0, tapT: 0, dblT: 0, cutT: 0, elast: 0, elastT: 0, gMul: 1, driftG: 0, offT: 0,
+    hitT: 0, padT: 0, airT: 0, air: false, vy: 0, surf: 0, bumpT: 0, sc: 0, pi: 0, ps: 0, prevSc: 0, draftT: 0, draftB: 0, draftCd: 0, tapT: 0, dblT: 0, cutT: 0, elast: 0, elastT: 0, gMul: 1, driftG: 0, offT: 0,
     finished: false, finishTime: 0,
     ev: {},   // 이번 프레임에 일어난 일 (효과음·이펙트용)
     _loc: {},
@@ -168,7 +167,6 @@ export function stepKart(k, inp, dt, T, rule) {
   if (k.padT > 0) { k.padT -= dt; vmax = Math.max(vmax, C.boostSpeed); acc = Math.max(acc, C.boostAccel); }
   if (k.draftCd > 0) k.draftCd -= dt;
   if (k.draftB > 0) { k.draftB -= dt; if (!water) { vmax += C.draftSpeed; acc = Math.max(acc, 30); } }   // 드래프트: 순간 가속
-  vmax *= 1 + C.catchUp * k.catch;
   if (water) { vmax *= 0.6; acc *= 0.7; }                     // 물웅덩이: 느려진다
   if (k.bumpT > 0) k.bumpT -= dt;
   const slopeAcc = -(k._loc.slope || 0) * 9 * Math.cos(wrap(k.mv - Math.atan2(k._loc.tx || 0, k._loc.tz || 1)));

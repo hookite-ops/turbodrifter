@@ -44,7 +44,9 @@ resize();
 let HQ = store.get('td_hq', !(('ontouchstart' in window) || navigator.maxTouchPoints > 0));
 
 // ---------------- 프로필 ----------------
-const profile = store.get('td_profile', { name: '', char: 0, color: 0 });
+const profile = store.get('td_profile', { name: '', char: 0, color: 0, kart: 0, kv: 2 });
+// 클래식 카트를 뺀 뒤(v3.1): 옛 번호 0 클래식·1 토이·2 로켓 → 0 토이·1 로켓
+if (profile.kv !== 2) { profile.kart = Math.max(0, (profile.kart | 0) - 1); profile.kv = 2; store.set('td_profile', profile); }
 if (!profile.name) profile.name = '라이더' + Math.floor(100 + Math.random() * 900);
 const saveProfile = () => { store.set('td_profile', profile); if (net.connected) net.send({ t: 'me', name: profile.name, char: profile.char, color: profile.color, kart: profile.kart | 0 }); };
 
@@ -213,7 +215,7 @@ function makeSetup(el, cfg, onChange) {
   el.innerHTML = `<div class="tracks"></div>
     <div class="su-right"><h3 class="su-name"></h3><div class="su-meta"><span class="lv"></span><span class="len"></span><span class="rec"></span></div><p class="desc"></p>
     <div class="lbl">모드</div><div class="seg" data-k="mode"><button data-v="speed">스피드전</button><button data-v="infinite">무한 부스터전</button></div>
-    <div class="lbl">바퀴 수</div><div class="seg" data-k="laps"><button data-v="1">1바퀴</button><button data-v="2">2바퀴</button><button data-v="3">3바퀴</button><button data-v="5">5바퀴</button></div>
+    <div class="lbl">바퀴 수</div><div class="seg" data-k="laps"><button data-v="1">1바퀴</button><button data-v="2">2바퀴</button><button data-v="3">3바퀴</button></div>
     <div class="su-extra"></div></div>`;
   const tr = el.querySelector('.tracks');
   for (const d of TRACKS) {
@@ -563,8 +565,6 @@ function updateRace(dt, now) {
         if (e.bot && !e.finished) { stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule); if (e.k.ev.lap !== undefined) botLap(R, e); }
         else if (e.bot) stepKart(e.k, botInput(e.bot, e.k, T, H, R.rule.time), H, T, R.rule);
       }
-      // 뒤처진 카트 보정: 1등과 30m 넘게 벌어지면 조금씩 빨라진다 (200m에서 최대)
-      if (first && R.karts.length > 1) { let lead = -1e9; for (const e of R.karts) if (!e.finished) lead = Math.max(lead, e.k.prog); for (const e of R.karts) e.k.catch = clamp((lead - e.k.prog - 30) / 170, 0, 1); }
       // 드래프트: 앞 카트 3~22m 뒤, 좌우 2.4m 안에서 1.5초 따라가면 순간 가속
       for (const a of R.karts) {
         if (a.remote) continue;
@@ -887,6 +887,7 @@ function buildMenu() {
   paint();
 }
 const soloCfg = Object.assign({ track: 'village', mode: 'speed', laps: 3, rivals: 7 }, store.get('td_solo', {}));
+if (![1, 2, 3].includes(soloCfg.laps)) soloCfg.laps = 3;   // 5바퀴를 뺀 뒤 저장값 정리
 function init() {
   buildMenu();
   const soloSetup = makeSetup($('solo-setup'), soloCfg, () => store.set('td_solo', soloCfg));

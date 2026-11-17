@@ -2,7 +2,7 @@
 let ctx = null, master = null, bufs = {}, engine = null, skid = null, boostN = null, ready = false, muted = false;
 
 async function load(name) {
-  for (const ext of ['ogg', 'mp3']) {
+  for (const ext of ['mp3']) {
     try {
       const r = await fetch(`assets/${name}.${ext}`); if (!r.ok) continue;
       return await ctx.decodeAudioData(await r.arrayBuffer());
@@ -87,7 +87,7 @@ export const sfx = {
 
 // ---------- 배경음악 (MintoDog, CC0 — OpenGameArt) ----------
 // 트랙마다 기본곡 + 마지막 바퀴용 빠른 곡. 오디오 요소 두 개로 겹쳐 바꾼다.
-const BGM_EXT = (() => { try { return document.createElement('audio').canPlayType('audio/ogg; codecs="vorbis"') ? 'ogg' : 'mp3'; } catch (e) { return 'mp3'; } })();
+const BGM_EXT = 'mp3';   // 모든 브라우저가 재생하는 형식 하나만 둔다
 let bgmOn = true; try { bgmOn = localStorage.getItem('td_music') !== '0'; } catch (e) {}
 export const music = {
   vol: 0.42, want: '', cur: null, curName: '', unlocked: false, fades: [],

@@ -237,7 +237,7 @@ wss.on('connection', (ws, req) => {
         break;
       }
       case 'me':
-        p.name = clean(m.name, 10) || '라이더'; p.char = (m.char | 0) & 7; p.color = (m.color | 0) & 15; p.kart = (m.kart | 0) & 3;
+        p.name = clean(m.name, 10) || '라이더'; p.char = (m.char | 0) & 7; p.color = (m.color | 0) & 15; p.kart = (m.kart | 0) & 1;
         if (r) { uniqueName(r, p); pushRoom(r); }
         break;
       case 'list': send(ws, { t: 'rooms', rooms: roomList() }); break;
@@ -258,7 +258,7 @@ wss.on('connection', (ws, req) => {
         if (r && r.host === p.id && r.state === 'lobby') {
           if (TRACK_IDS.includes(m.track)) r.track = m.track;
           if (MODES.includes(m.mode)) r.mode = m.mode;
-          if ([1, 2, 3, 5].includes(m.laps)) r.laps = m.laps;
+          if ([1, 2, 3].includes(m.laps)) r.laps = m.laps;
           touch(r); pushRoom(r);
         }
         break;

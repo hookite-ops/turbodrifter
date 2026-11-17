@@ -16,10 +16,9 @@ export const COLORS = [
   { name: '흰색', hex: '#f3f3f3' }, { name: '검정', hex: '#30323c' },
 ];
 
-// 카트 종류: 0 = 직접 만든 클래식(색 변경 가능), 1·2 = Tripo로 만든 모델(텍스처 고정, 색은 스카프에만)
+// 카트 종류: Tripo로 만든 모델 2종. kart.glb에서는 드라이버(캐릭터)만 가져와 좌석에 앉힌다
 // driver = 드라이버를 좌석에 앉히는 위치(높이 y, 앞뒤 z, 크기 s), flames = 배기 불꽃 위치
 export const KARTS = [
-  { id: 'classic', name: '클래식' },
   { id: 'toy', name: '토이', file: 'assets/kart_toy.glb', driver: { y: 0.25, z: 0.0, s: 1.0 }, flames: [[0.42, 0.61, -1.3], [-0.42, 0.61, -1.3]] },
   { id: 'rocket', name: '로켓', file: 'assets/kart_rocket.glb', driver: { y: 0.1, z: 0.1, s: 0.92 }, flames: [[0.13, 0.62, -1.42], [-0.13, 0.62, -1.42]] },
 ];
@@ -32,7 +31,7 @@ const WHEELS = ['WheelFL', 'WheelFR', 'WheelRL', 'WheelRR'];
 export async function loadKartAsset() {
   const loader = new GLTFLoader();
   const jobs = [loader.loadAsync('assets/kart.glb').then(g => { g.scene.updateMatrixWorld(true); asset = g.scene; })
-    .catch(e => { console.warn('kart.glb 로드 실패 — 기본 모양 사용', e); asset = null; })];
+    .catch(e => { console.warn('kart.glb(드라이버) 로드 실패', e); asset = null; })];
   for (const k of KARTS) {
     if (!k.file) continue;
     jobs.push(loader.loadAsync(k.file).then(g => {
@@ -80,32 +79,6 @@ function prep(mesh, matrix, color) {
   return g;
 }
 
-function buildGeoms(ch, colorHex) {
-  const key = ch.name + colorHex;
-  if (cache.has(key)) return cache.get(key);
-  const over = { Body: colorHex, Fur: ch.fur, Fur2: ch.fur2, Muzzle: ch.muzzle };
-  const body = [], wheels = { WheelFL: [], WheelFR: [], WheelRL: [], WheelRR: [] };
-  const inv = {}, pos = {};
-  for (const w of WHEELS) { const p = asset.getObjectByName(w); inv[w] = p.matrixWorld.clone().invert(); pos[w] = p.getWorldPosition(new THREE.Vector3()); }
-  const tmp = new THREE.Color();
-  asset.traverse(o => {
-    if (!o.isMesh) return;
-    let wheel = null, ears = null;
-    for (let a = o.parent; a; a = a.parent) { if (WHEELS.includes(a.name)) wheel = a.name; if (a.name.startsWith('Ears_')) ears = a.name; }
-    if (ears && ears !== ch.ears) return;
-    const mn = o.material.name;
-    const c = over[mn] ? tmp.set(over[mn]).clone() : o.material.color.clone();
-    if (wheel) wheels[wheel].push(prep(o, new THREE.Matrix4().multiplyMatrices(inv[wheel], o.matrixWorld), c));
-    else body.push(prep(o, o.matrixWorld, c));
-  });
-  const res = { body: mergeGeometries(body), wheels: {}, pos, flames: [] };
-  for (const w of WHEELS) res.wheels[w] = mergeGeometries(wheels[w]);
-  for (const f of ['FlameL', 'FlameR']) { const e = asset.getObjectByName(f); res.flames.push(e ? e.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(0, 0.5, -1.4)); }
-  [...body, ...Object.values(wheels).flat()].forEach(g => g.dispose());
-  cache.set(key, res);
-  return res;
-}
-
 const kartMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 60, specular: 0x555555 });
 const shadowTex = (() => {
   const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
@@ -135,14 +108,6 @@ export function makeKart(charIdx, colorIdx, kartIdx = 0) {
       d.position.set(0, K.driver.y, K.driver.z); d.scale.setScalar(K.driver.s); tilt.add(d);
     }
     flamePos = K.flames.map(f => new THREE.Vector3(f[0], f[1], f[2]));
-  } else if (asset) {
-    const G = buildGeoms(ch, color);
-    tilt.add(new THREE.Mesh(G.body, kartMat));
-    for (const w of WHEELS) {
-      const m = new THREE.Mesh(G.wheels[w], kartMat); m.position.copy(G.pos[w]); m.rotation.order = 'YXZ';
-      m.userData.r = G.pos[w].y; m.userData.front = w[5] === 'F'; group.add(m); wheels.push(m);
-    }
-    flamePos = G.flames;
   } else {
     const b = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 2.4), new THREE.MeshPhongMaterial({ color })); b.position.y = 0.5; tilt.add(b);
     const h = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 10), new THREE.MeshPhongMaterial({ color: ch.fur })); h.position.set(0, 1.2, -0.2); tilt.add(h);
