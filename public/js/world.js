@@ -294,7 +294,8 @@ export function buildWorld(T, opt = {}) {
 
   // ----- 트랙 장치 (점프대·물·빙판·터널·장애물) -----
   const featLm = [];
-  const feat = buildFeatures(T, { g, L, lam, basic, strip, canvasTex, instanced, hq, th, R, disposables, box, landmarks: featLm, moverModels: moverModels(theme, disposables, hq) });
+  const noScen = [];   // 소품을 놓지 않는 구역 (주차 타워 안마당 등)
+  const feat = buildFeatures(T, { g, L, lam, basic, strip, canvasTex, instanced, hq, th, R, disposables, box, landmarks: featLm, moverModels: moverModels(theme, disposables, hq), heightAt, nearTrack, fits, take, noScen });
 
   // ----- 도로 위 표시: 출발선, 그리드 칸, 타이어 자국, 코너 화살표 -----
   const decal = (o) => basic({ transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide, ...o });
@@ -370,7 +371,7 @@ export function buildWorld(T, opt = {}) {
       // 모델 크기만큼 도로에서 떨어진 자리를 찾는다 (바깥쪽 → 반대쪽, 점점 멀리)
       const clr = d.m === 'neon' ? 5 : d.m === 'arch' ? d.h * 0.62 : 7;
       let x, z, ok = false;
-      for (const extra of [0, 14, 28, 44]) { for (const sd of [d.side, -d.side]) { const off0 = d.off; d.off = off0 + extra; [x, z] = place(sd); d.off = off0; if (!nearTrack(x, z, clr)) { ok = true; break; } } if (ok) break; }
+      for (const extra of [0, 14, 28, 44]) { for (const sd of [d.side, -d.side]) { const off0 = d.off; d.off = off0 + extra; [x, z] = place(sd); d.off = off0; if (!nearTrack(x, z, clr) && fits(x, z, d.h * (d.m === 'neon' ? 0.22 : 0.6))) { ok = true; break; } } if (ok) break; }
       if (!ok) continue;
       lmPlan.push({ m: d.m, h: d.h, x, z, y: heightAt(x, z) - 0.4, ry: Math.atan2(T.x[i] - x, T.z[i] - z), r: d.h * (d.m === 'neon' ? 0.22 : 0.6) });
     } else lmPlan.push({ m: d.m, h: d.h, x: d.x, z: d.z, y: heightAt(d.x, d.z) - 1.5, ry: d.ry || 0, r: d.h * 0.62 });
@@ -378,7 +379,7 @@ export function buildWorld(T, opt = {}) {
   for (const l of featLm) lmPlan.push({ ...l, r: 0 });
   const zones = lmPlan.map(l => ({ x: l.x, z: l.z, r: l.r }));
   // 터널 안·근처에는 구조물(배너·가로등·광고판)을 세우지 않는다
-  const inTun = new Uint8Array(N); for (let i = 0; i < N; i++) if (T.tunnel[i]) for (let o = -12; o <= 12; o++) inTun[(i + o + N) % N] = 1;
+  const inTun = new Uint8Array(N); for (let i = 0; i < N; i++) if (T.tunnel[i] || T.garage[i]) for (let o = -12; o <= 12; o++) inTun[(i + o + N) % N] = 1;
   for (const l of zones) take(l.x, l.z, Math.max(4, l.r), 'landmark');
   const blocked = (x, z, r = 0) => !fits(x, z, r);
 
@@ -489,7 +490,7 @@ export function buildWorld(T, opt = {}) {
     // 벽 위 깃발 (코너)
     const poles = [], flags = [], fcols = th.night ? ['#2ef2ff', '#ff3fa4'] : ['#ff4d42', '#ffd21e', '#ffffff'];
     for (let i = 0; i < N; i += 5) {
-      if (Math.abs(T.curv[i]) < 0.012 || T.tunnel[i]) continue;
+      if (Math.abs(T.curv[i]) < 0.012 || T.tunnel[i] || T.garage[i]) continue;
       const s = -Math.sign(T.curv[i]), x = T.x[i] + T.nx[i] * s * (T.hw[i] + 0.35), z = T.z[i] + T.nz[i] * s * (T.hw[i] + 0.35), ry = dirAt(i);
       poles.push({ x, z, y: T.y[i] + 2.9, sx: 0.09, sy: 1.6, sz: 0.09, c: '#e8e8ee' });
       flags.push({ x: x + Math.sin(ry) * 0.5, z: z + Math.cos(ry) * 0.5, y: T.y[i] + 3.35, sx: 0.04, sy: 0.6, sz: 1.0, ry, c: fcols[(i / 5) % fcols.length | 0] });
@@ -515,7 +516,7 @@ export function buildWorld(T, opt = {}) {
     while (out.length < count && tries++ < count * 40) {
       const sz = rf(), r = sz.r;
       const x = minX - pad + R() * (maxX - minX + pad * 2), z = minZ - pad + R() * (maxZ - minZ + pad * 2);
-      if (nearTrack(x, z, Math.max(margin, r + 1.2)) || !fits(x, z, r)) continue;
+      if (nearTrack(x, z, Math.max(margin, r + 1.2)) || !fits(x, z, r) || noScen.some(q => x > q.x0 - r && x < q.x1 + r && z > q.z0 - r && z < q.z1 + r)) continue;
       if (maxEdge < 1e8 && !nearTrack(x, z, maxEdge)) continue;
       take(x, z, r, kind);
       out.push({ x, z, y: heightAt(x, z), ...sz });

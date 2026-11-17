@@ -80,32 +80,29 @@ export const TRACKS = [
     ],
   },
   {
-    id: 'neon', name: '네온 시티 하이웨이', theme: 'city', level: '★★★', laps: 2,
-    desc: '차들이 달리는 하이웨이를 비집고, 직각 코너가 연달아 나오는 도심 블록을 꿰뚫는다.',
-    hw: 7.2,
-    pts: sc([
-      [0, -220, 22, 0, 10.5], [0, 220, 22, 0, 10.5], [120, 220, 21, 0], [120, 120, 20, 0], [240, 120, 20, 0], [240, 240, 21, 0], [400, 240, 23, 0],
-      [400, 60, 22, 0], [300, 60, 20, 2], [300, -40, 20, 5], [420, -40, 21, 10], [420, -220, 23, 10, 8], [260, -220, 22, 4],
-      [260, -120, 20, 0, 6.4], [140, -120, 20, 0, 6.4], [140, -220, 21, 0, 7],
-    ], 0.82),
-    pads: [{ at: { e: 4, t: 0.5 }, lat: 0 }, { at: { e: 11, t: 0.3 }, lat: 2.6 }, { at: { e: 11, t: 0.55 }, lat: -2.6 }],
+    id: 'neon', name: '네온 시티 타워 서킷', theme: 'city', level: '★★★', laps: 3,
+    desc: '하이웨이를 달려 주차 타워 나선 경사로를 감아 오르고, 옥상에서 방금 지나온 하이웨이 위 다리를 건너 뛰어내린다.',
+    hw: 7,
+    // 주차 타워(가로세로 80m)를 2바퀴 반 돌며 7m씩 올라간다 → 같은 자리를 위·아래 층으로 지난다
+    pts: [
+      [0, -180, 20, 0, 10], [0, 140, 20, 0, 9],
+      [210, 140, 14, 1], [210, 60, 14, 3], [130, 60, 14, 5], [130, 140, 14, 7],    // 1층 → 2층
+      [210, 140, 14, 8.5], [210, 60, 14, 12],                                        // 2층 → 옥상, 서쪽으로 빠져나감
+      [-80, 60, 18, 12], [-80, -180, 18, 0],                                          // 하이웨이 위 다리 → 내리막
+    ],
+    pads: [{ at: { e: 1, t: 0.25 }, lat: 0 }, { at: { e: 7, t: 0.15 }, lat: 0 }, { at: { e: 8, t: 0.62 }, lat: 2.6 }, { at: { e: 8, t: 0.74 }, lat: -2.6 }],
     zones: [
-      { from: { e: 6, t: 0.12 }, to: { e: 6, t: 0.88 }, kind: 'tunnel', style: 'neon' },
+      { from: { c: 2, t: 0 }, to: { c: 7, t: 1 }, kind: 'garage' },
+      { from: { e: 7, t: 0.6 }, to: { e: 7, t: 0.86 }, kind: 'tunnel', style: 'neon' },
     ],
-    jumps: [{ at: { e: 10, t: 0.42 }, len: 11, rise: 2.2 }],
+    jumps: [{ at: { e: 8, t: 0.12 }, len: 11, rise: 2.2 }],
     obs: [
-      { at: { e: 14, t: 0.3 }, lat: 3.6, r: 0.9, kind: 'cone', soft: true }, { at: { e: 14, t: 0.3 }, lat: 1.8, r: 0.9, kind: 'cone', soft: true },
-      { at: { e: 14, t: 0.6 }, lat: -3.6, r: 0.9, kind: 'cone', soft: true }, { at: { e: 14, t: 0.6 }, lat: -1.8, r: 0.9, kind: 'cone', soft: true },
+      { at: { e: 8, t: 0.86 }, lat: 3.4, r: 0.9, kind: 'cone', soft: true }, { at: { e: 8, t: 0.86 }, lat: 1.6, r: 0.9, kind: 'cone', soft: true },
+      { at: { e: 9, t: 0.5 }, lat: -3.4, r: 0.9, kind: 'cone', soft: true }, { at: { e: 9, t: 0.5 }, lat: -1.6, r: 0.9, kind: 'cone', soft: true },
     ],
-    // 지름길: 직각 코너를 꺾지 않고 곧장 뒷골목으로 — 지그재그라 드리프트를 잘 끊어야 이득
-    shortcuts: [{ from: { e: 11, t: 0.86 }, to: { e: 15, t: 0.2 }, hw: 4.2, kind: 'alley',
-      pts: [[186, -178, 8], [168, -197, 8], [149, -167, 8], [130, -192, 8]],
-      obs: [{ at: 0.5, lat: 2.1, r: 0.9, kind: 'cone', soft: true }],
-      pads: [{ at: 0.84, lat: 0 }] }],
     movers: [
-      { kind: 'traffic', model: 'car', from: { e: 0, t: 0.64 }, to: { e: 0, t: 0.97 }, lanes: [4.6, -4.6], count: 2, speed: 17, r: 1.9 },
-      { kind: 'traffic', model: 'car', from: { e: 0, t: 0.04 }, to: { e: 0, t: 0.38 }, lanes: [4.6, -4.6], count: 2, speed: 17, r: 1.9 },
-      { kind: 'traffic', model: 'car', from: { e: 6, t: 0.05 }, to: { e: 6, t: 0.95 }, lanes: [-3.4], count: 2, speed: 14, r: 1.9 },
+      { kind: 'traffic', model: 'car', from: { e: 0, t: 0.62 }, to: { e: 0, t: 0.97 }, lanes: [4.6, -4.6], count: 2, speed: 17, r: 1.9 },
+      { kind: 'traffic', model: 'car', from: { e: 0, t: 0.06 }, to: { e: 0, t: 0.4 }, lanes: [4.6, -4.6], count: 2, speed: 17, r: 1.9 },
     ],
   },
 ];
@@ -185,6 +182,7 @@ export function buildTrack(def, step = 2) {
     tunnel: new Uint8Array(N),      // 1 = 터널 안
     cliff: new Float32Array(N),     // 0~1 절벽 지형 세기
     ramp: new Uint8Array(N),        // 1 = 점프대 위
+    garage: new Uint8Array(N),      // 1 = 주차 타워 안 (소품을 세우지 않는다)
   };
   let k = 0;
   for (let i = 0; i < N; i++) {
@@ -229,6 +227,7 @@ export function buildTrack(def, step = 2) {
       const i = (i0 + q) % N;
       if (z.kind === 'ice') T.surf[i] = 1; else if (z.kind === 'water') T.surf[i] = 2;
       else if (z.kind === 'tunnel') T.tunnel[i] = 1;
+      else if (z.kind === 'garage') T.garage[i] = 1;
       else if (z.kind === 'cliff') T.cliff[i] = Math.max(T.cliff[i], Math.min(1, q / 10, (cnt - q) / 10) * (z.amt || 1));
     }
     return { kind: z.kind, i: i0, cnt, style: z.style || '' };

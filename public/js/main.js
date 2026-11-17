@@ -14,7 +14,7 @@ const fmt = ms => { if (ms == null) return '리타이어'; const m = Math.floor(
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
 
 // ---------------- 기록·고스트 (혼자 달리기) ----------------
-const recKey = c => `${c.track}|${c.mode}|${c.laps}|m2`;   // m2: 맵을 다시 만든 뒤의 기록
+const recKey = c => `${c.track}|${c.mode}|${c.laps}|${c.track === 'neon' ? 'm3' : 'm2'}`;   // m2: 맵을 다시 만든 뒤의 기록
 const records = store.get('td_rec', {});
 const fmtGap = ms => (ms < 0 ? '-' : '+') + (Math.abs(ms) / 1000).toFixed(2);
 
@@ -812,7 +812,7 @@ let frames = 0;
 function frame(now) {
   requestAnimationFrame(frame); frames++;
   const dt = Math.min(window.__tdMaxDt || 0.05, (now - last) / 1000); last = now;   // __tdMaxDt: 느린 환경 테스트용
-  if (race) { updateRace(dt, now); if (race) renderer.render(scene, camera); else renderMenu(dt, now); }
+  if (race) { updateRace(dt, now); if (race) { if (window.__tdCam) { const c = window.__tdCam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); } renderer.render(scene, camera); } else renderMenu(dt, now); }   // __tdCam: 테스트용 고정 카메라
   else renderMenu(dt, now);
 }
 // ---------------- 시상대 (결과 화면 뒤 3D) ----------------

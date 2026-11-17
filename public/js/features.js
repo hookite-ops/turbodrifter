@@ -170,6 +170,162 @@ export function buildFeatures(T, H) {
     }
   }
 
+  // ----- 주차 타워: 층마다 바깥 띠, 위층을 받치는 기둥, 천장 조명, 계단 타워, 옥상 조명탑, 안마당 주차 차량 -----
+  for (const z of T.zones) {
+    if (z.kind !== 'garage') continue;
+    const i0 = z.i, cnt = z.cnt, LED = 2.8;   // LED: 도로 벽 바깥으로 튀어나온 바닥 판 폭
+    // 트랙 점 격자 (기둥이 도로를 뚫지 않게 확인)
+    const CG = 10, grd = new Map();
+    for (let i = 0; i < N; i++) { const k = Math.floor(T.x[i] / CG) + ',' + Math.floor(T.z[i] / CG); (grd.get(k) || grd.set(k, []).get(k)).push(i); }
+    const roadsNear = (x, zz, rad) => { const out = []; const gx = Math.floor(x / CG), gz = Math.floor(zz / CG);
+      for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) { const l = grd.get((gx + a) + ',' + (gz + b)); if (l) for (const i of l) { const d = Math.hypot(T.x[i] - x, T.z[i] - zz); if (d < T.hw[i] + rad) out.push({ i, d, y: T.y[i] }); } }
+      return out; };
+    // 1) 바닥 판(벽 바깥으로 2.8m)과 바깥 띠 — 층 사이가 뚫려 보이는 주차장 외벽
+    const bandTex = canvasTex(256, 64, (c, w, h) => {
+      c.fillStyle = '#3a3e58'; c.fillRect(0, 0, w, h); c.fillStyle = '#2b2e44'; c.fillRect(0, h * 0.62, w, h * 0.38);
+      c.fillStyle = '#2ef2ff'; c.fillRect(0, h * 0.5, w, 4); c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(0, 0, w, 3);
+      for (let k = 0; k < 8; k++) { c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(k * 32, 0, 2, h); }
+    });
+    const bandM = basic({ map: bandTex, side: THREE.DoubleSide });
+    const slabM = lam({ color: '#2a2d42', side: THREE.DoubleSide });
+    for (const sd of [1, -1]) {
+      const o = i => sd * (T.hw[i] + 0.6), e = i => sd * (T.hw[i] + LED);
+      L(strip(T, o, 1.0, e, 1.2, 8, 0, 1, i0, cnt), slabM);          // 판 윗면 (벽 높이에 맞춤)
+      L(strip(T, e, 1.2, e, -1.7, 10, 0, 1, i0, cnt), bandM);        // 바깥 띠 (네온 줄)
+      L(strip(T, o, -1.7, e, -1.7, 8, 0, 1, i0, cnt), slabM);        // 판 아랫면
+    }
+    // 2) 천장 조명: 위층 바닥 아래에 두 줄
+    const ledM = basic({ color: '#bff6ff', side: THREE.DoubleSide });
+    for (const lt of [0.45, -0.45]) L(strip(T, i => T.hw[i] * lt + 0.25, -1.75, i => T.hw[i] * lt - 0.25, -1.75, 0, 0, 1, i0, cnt), ledM);
+    // 3) 기둥: 바닥 판 끝 아래(벽 바깥 1.7m). 땅 위 도로에는 세우지 않고, 위를 지나는 도로가 있으면 그 밑에서 멈춰 받친다
+    const cols = [], foots = [];
+    for (let r = 0; r <= cnt; r += 6) {
+      const i = (i0 + r) % N;
+      for (const sd of [1, -1]) {
+        const lat = sd * (T.hw[i] + 1.7), cx = T.x[i] + T.nx[i] * lat, cz = T.z[i] + T.nz[i] * lat;
+        const ground = H.heightAt(cx, cz);
+        const inRoad = roadsNear(cx, cz, 1.0);               // 기둥이 도로 위에 놓이는가
+        if (inRoad.some(q => q.y < ground + 2.5)) continue;   // 땅 위 도로: 세우지 않음
+        const above = roadsNear(cx, cz, LED + 0.2).filter(q => q.y > ground + 3);
+        if (!above.length) continue;
+        let top = Math.max(...above.map(q => q.y - 1.7));
+        for (const q of inRoad) if (q.y > ground) top = Math.min(top, q.y - 1.75);
+        if (top - ground < 2.2 || !H.fits(cx, cz, 0.7)) continue;
+        cols.push({ x: cx, z: cz, y: (top + ground) / 2, sx: 1.0, sy: top - ground, sz: 1.0, ry: dirAt(i) });
+        H.take(cx, cz, 0.7, 'column');
+      }
+    }
+    if (cols.length) g.add(instanced(box, lam({ color: '#4a4f6e' }), cols, hq));
+    // 3-2) 층 사이 외벽: 바로 위에 다른 층이 있는 구간에만, 아래층 띠 위부터 위층 띠 아래까지 가로 살(루버) 벽
+    const upY = new Float32Array(N).fill(-1);
+    for (let r = 0; r <= cnt; r++) {
+      const i = (i0 + r) % N;
+      const up = roadsNear(T.x[i], T.z[i], 1.5 - T.hw[i]).filter(q => q.y > T.y[i] + 5);
+      if (up.length) upY[i] = Math.min(...up.map(q => q.y));
+    }
+    const louvTex = canvasTex(64, 128, (c, w, h) => {
+      for (let k = 0; k < 8; k++) { c.fillStyle = '#3a3e58'; c.fillRect(0, k * 16, w, 8); c.fillStyle = '#2ef2ff'; c.fillRect(0, k * 16 + 7, w, 1); }
+      c.fillStyle = '#4a4f6e'; c.fillRect(0, 0, 4, h); c.fillRect(w - 4, 0, 4, h);
+    });
+    louvTex.wrapS = louvTex.wrapT = THREE.RepeatWrapping;
+    const louvM = basic({ map: louvTex, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide });
+    let ra = -1;
+    for (let r = 0; r <= cnt + 1; r++) {
+      const i = (i0 + r) % N, on = r <= cnt && upY[i] > 0;
+      if (on && ra < 0) ra = r;
+      if (!on && ra >= 0) {
+        const a0 = (i0 + ra) % N, c2 = r - 1 - ra;
+        if (c2 > 2) for (const sd of [1, -1]) {
+          const e = j => sd * (T.hw[j] + LED);
+          L(strip(T, e, 1.2, e, j => Math.max(1.3, upY[j] - T.y[j] - 1.7), 6, 0, 1, a0, c2), louvM);
+        }
+        ra = -1;
+      }
+    }
+    // 3-2b) 바깥 둘레 아래쪽: 땅부터 가장 낮은 층 띠까지 외벽 (밑으로 도로가 지나는 입구는 비운다)
+    { let gx0 = 1e9, gx1 = -1e9, gz0 = 1e9, gz1 = -1e9;
+      for (let r = 0; r <= cnt; r++) { const i = (i0 + r) % N; gx0 = Math.min(gx0, T.x[i]); gx1 = Math.max(gx1, T.x[i]); gz0 = Math.min(gz0, T.z[i]); gz1 = Math.max(gz1, T.z[i]); }
+      const gcx = (gx0 + gx1) / 2, gcz = (gz0 + gz1) / 2;
+      const low = new Float32Array(N).fill(1e9), sideOf = new Int8Array(N);
+      for (let r = 0; r <= cnt; r++) {
+        const i = (i0 + r) % N, sd = (T.nx[i] * (T.x[i] - gcx) + T.nz[i] * (T.z[i] - gcz)) > 0 ? 1 : -1;   // 바깥쪽
+        const ex = T.x[i] + T.nx[i] * sd * (T.hw[i] + LED), ez = T.z[i] + T.nz[i] * sd * (T.hw[i] + LED), gy = H.heightAt(ex, ez);
+        const under = roadsNear(ex, ez, 1.5).some(q => q.y < T.y[i] - 3);       // 이 벽 밑으로 다른 도로가 지나감
+        const below = roadsNear(T.x[i], T.z[i], 1.5 - T.hw[i]).some(q => q.y < T.y[i] - 3);   // 이 층 밑에 다른 층이 있음 (그 층의 띠가 맡는다)
+        if (!under && !below && T.y[i] - gy > 3.4) { low[i] = gy; sideOf[i] = sd; }
+      }
+      let ra2 = -1;
+      for (let r = 0; r <= cnt + 1; r++) {
+        const i = (i0 + r) % N, on = r <= cnt && low[i] < 1e8 && (ra2 < 0 || sideOf[i] === sideOf[(i0 + ra2) % N]);
+        if (on && ra2 < 0) ra2 = r;
+        if ((!on || r === cnt + 1) && ra2 >= 0) {
+          const a0 = (i0 + ra2) % N, c2 = r - 1 - ra2, sd = sideOf[a0];
+          if (c2 > 2) { const e = j => sd * (T.hw[j] + LED); L(strip(T, e, j => low[j] < 1e8 ? low[j] - T.y[j] : -1.7, e, -1.7, 6, 0, 1, a0, c2), louvM); }
+          ra2 = on ? r : -1;
+        }
+      }
+    }
+    // 3-3) 바닥 층 표시: 1F → 2F → RF
+    const floorTex = (txt) => canvasTex(256, 128, (c, w, h) => { c.clearRect(0, 0, w, h); c.fillStyle = 'rgba(255,255,255,0.88)'; c.font = '900 104px "Black Han Sans", "Arial Black", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, w / 2, h / 2 + 4); }, false);
+    const yA = T.y[i0], yB = T.y[(i0 + cnt) % N];
+    for (const [txt, fy] of [['1F', 0.03], ['2F', 0.5], ['RF', 0.97]]) {
+      const yt = yA + (yB - yA) * fy; let best = 0, bd = 1e9;
+      for (let r = 0; r <= cnt; r++) { const d = Math.abs(T.y[(i0 + r) % N] - yt); if (d < bd) { bd = d; best = r; } }
+      const i = (i0 + Math.min(cnt - 3, Math.max(3, best))) % N;
+      const pg = new THREE.PlaneGeometry(9, 4.5); disposables.push(pg);
+      const m = new THREE.Mesh(pg, basic({ map: floorTex(txt), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      m.position.set(T.x[i], T.y[i] + 0.05, T.z[i]); m.rotation.order = 'YXZ'; m.rotation.y = dirAt(i) + Math.PI; m.rotation.x = -Math.PI / 2 + Math.atan(T.slope[i]);
+      g.add(m);
+    }
+    // 4) 건물 범위 (안마당·모서리 계산용)
+    let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9, top = 0;
+    for (let r = 0; r <= cnt; r++) { const i = (i0 + r) % N; x0 = Math.min(x0, T.x[i]); x1 = Math.max(x1, T.x[i]); z0 = Math.min(z0, T.z[i]); z1 = Math.max(z1, T.z[i]); top = Math.max(top, T.y[i]); }
+    const ccx = (x0 + x1) / 2, ccz = (z0 + z1) / 2;
+    // 5) 모서리 계단 타워 + P 간판: 건물 바깥 대각선 방향, 빈자리에만
+    const pTex = canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#1b2bff'; c.fillRect(0, 0, w, h); c.strokeStyle = '#fff'; c.lineWidth = 8; c.strokeRect(8, 8, w - 16, h - 16); c.fillStyle = '#fff'; c.font = '900 92px "Black Han Sans", "Arial Black", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('P', w / 2, h / 2 + 6); }, false);
+    const towerTex = canvasTex(64, 128, (c, w, h) => { c.fillStyle = '#30334c'; c.fillRect(0, 0, w, h); for (let k = 0; k < 8; k++) { c.fillStyle = k % 2 ? '#ffe9a8' : '#9fe8ff'; c.fillRect(20, k * 16 + 4, 24, 6); } }, true);
+    const towers = [], signs = [];
+    for (const [qx, qz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) {
+      const dx = Math.sign(qx - ccx), dz = Math.sign(qz - ccz);
+      for (const out of [4, 8, 12]) {
+        const tx = qx + dx * out, tz = qz + dz * out, Rr = 4.6;
+        if (H.nearTrack(tx, tz, Rr + 1.2) || !H.fits(tx, tz, Rr)) continue;
+        const gy = H.heightAt(tx, tz), th2 = top + 7;
+        towers.push({ x: tx, z: tz, y: gy + th2 / 2, sx: 6.4, sy: th2, sz: 6.4 });
+        signs.push({ x: tx, z: tz, y: gy + th2 - 2.6, sx: 6.6, sy: 4.2, sz: 6.6 });
+        H.take(tx, tz, Rr, 'tower'); break;
+      }
+    }
+    if (towers.length) { g.add(instanced(box, lam({ map: towerTex }), towers, hq)); g.add(instanced(box, basic({ map: pTex }), signs)); }
+    // 6) 옥상 조명탑: 꼭대기 층(위에 아무것도 없는 곳) 바닥 판 끝에
+    const poles = [], heads = [];
+    for (let r = 0; r <= cnt; r += 14) {
+      const i = (i0 + r) % N; if (T.y[i] < top - 3.5) continue;
+      for (const sd of [1, -1]) {
+        const lat = sd * (T.hw[i] + 2.2), px = T.x[i] + T.nx[i] * lat, pz = T.z[i] + T.nz[i] * lat;
+        if (roadsNear(px, pz, LED + 0.5).some(q => q.y > T.y[i] + 1)) continue;
+        poles.push({ x: px, z: pz, y: T.y[i] + 4.2, sx: 0.3, sy: 6.8, sz: 0.3 });
+        heads.push({ x: px - T.nx[i] * sd * 0.8, z: pz - T.nz[i] * sd * 0.8, y: T.y[i] + 7.6, sx: 2.0, sy: 0.35, sz: 0.8, ry: dirAt(i) });
+      }
+    }
+    if (poles.length) { g.add(instanced(box, lam({ color: '#5a5f80' }), poles, hq)); g.add(instanced(box, basic({ color: '#fff3c4' }), heads)); }
+    // 7) 안마당: 줄 맞춰 주차된 차들, 바닥 주차선. 다른 소품은 놓지 않는다
+    const inX0 = x0 + 9, inX1 = x1 - 9, inZ0 = z0 + 9, inZ1 = z1 - 9;
+    H.noScen.push({ x0: inX0, x1: inX1, z0: inZ0, z1: inZ1 });
+    const carB = [], carC = [], lines = [], CC = ['#ff3fa4', '#2ef2ff', '#ffe66a', '#8b5cf6', '#ff7a3c', '#f6f3ea', '#35d49a'];
+    for (let px = inX0 + 6; px < inX1 - 4; px += 4.2) for (const pz of [ccz - 9, ccz + 9]) {
+      if (H.nearTrack(px, pz, 4) || !H.fits(px, pz, 2.3)) continue;
+      const gy = H.heightAt(px, pz);
+      lines.push({ x: px - 2.1, z: pz, y: gy + 0.04, sx: 0.15, sy: 0.02, sz: 5.6, c: '#f6f3ea' });
+      if (R() < 0.25) continue;   // 빈 칸
+      const c = CC[Math.floor(R() * CC.length)];
+      carB.push({ x: px, z: pz, y: gy + 0.7, sx: 1.9, sy: 0.8, sz: 4.1, c }); carC.push({ x: px, z: pz + (pz > ccz ? 0.3 : -0.3), y: gy + 1.4, sx: 1.6, sy: 0.65, sz: 2.1, c: '#1a1d2e' });
+      H.take(px, pz, 2.3, 'parked');
+    }
+    if (carB.length) { g.add(instanced(box, lam({ color: '#ffffff' }), carB, hq)); g.add(instanced(box, lam({ color: '#ffffff' }), carC, false)); }
+    if (lines.length) g.add(instanced(box, basic({ color: '#ffffff' }), lines));
+  }
+
   // ----- 장애물 -----
   const hayTex = canvasTex(128, 64, (c, w, h) => { c.fillStyle = '#e9bd4f'; c.fillRect(0, 0, w, h); for (let k = 0; k < 200; k++) { c.strokeStyle = `rgba(${R() < 0.5 ? '120,80,20' : '255,240,170'},${0.25 + R() * 0.3})`; c.beginPath(); const x = R() * w, y = R() * h; c.moveTo(x, y); c.lineTo(x + (R() - 0.5) * 14, y + (R() - 0.5) * 4); c.stroke(); } c.fillStyle = '#c0392b'; c.fillRect(0, 20, w, 4); c.fillRect(0, 42, w, 4); });
   const hayTop = canvasTex(64, 64, (c, w, h) => { c.fillStyle = '#d8a83e'; c.fillRect(0, 0, w, h); c.strokeStyle = 'rgba(110,70,20,0.5)'; for (let r = 4; r < 32; r += 4) { c.beginPath(); c.arc(32, 32, r, 0, 7); c.stroke(); } }, false);
