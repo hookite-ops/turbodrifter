@@ -7,6 +7,7 @@ export const C = {
   maxSpeed: 30,                    // 일반 최고 속도 (약 198km/h)
   boostSpeed: 41,                  // 부스터 최고 속도 (약 270km/h)
   instSpeed: 35.5,                 // 순간 부스터 최고 속도
+  startSpeed: 42.6,                // 출발 부스터 최고 속도 (약 281km/h) — 원작도 출발 부스터가 일반 부스터보다 3~6% 빠름
   accel: 15, boostAccel: 34, instAccel: 44,
   coast: 5, brake: 30, reverse: 9,
   steerLow: 2.0, steerTop: 1.2, steerBoost: 1.0, // 일반 조향 (rad/s): 저속 / 최고 속도 / 부스터 중
@@ -82,7 +83,12 @@ export function stepKart(k, inp, dt, T, rule) {
   k.surf = surf;
   // 아이템에 맞음: 조작 불가 + 급감속 (spin 바나나·미사일, bubble 물폭탄)
   if (k.stunT > 0) {
-    k.stunT -= dt; inp = { steer: 0, accel: false, brake: false, drift: false };
+    k.stunT -= dt;
+    // 물방울: 좌우 방향키를 번갈아 누르면 빨리 빠져나온다 (원작과 같음)
+    const sd = Math.sign(inp.steer || 0);
+    if (k.stunKind === 'bubble' && sd && sd !== k.mashS) k.stunT -= 0.12;
+    if (sd) k.mashS = sd;
+    inp = { steer: 0, accel: false, brake: false, drift: false };
     k.boostT = 0; k.instT = 0; k.instWin = 0; k.drifting = false; k.kick = 0; k.slip = 0; k.draftB = 0;
     k.speed *= Math.exp(-(k.stunKind === 'bubble' ? 7 : 3.4) * dt);
   }
@@ -106,7 +112,7 @@ export function stepKart(k, inp, dt, T, rule) {
     }
   }
   if (inp.boostTap && k.boosts > 0 && k.boostT <= 0.15) {
-    k.boosts--; k.boostT = C.boostTime; ev.boost = true;
+    k.boosts--; k.boostT = C.boostTime; k.startB = false; ev.boost = true;
   }
   if (k.boostT > 0) k.boostT -= dt;
   if (k.instT > 0) k.instT -= dt;
@@ -177,7 +183,8 @@ export function stepKart(k, inp, dt, T, rule) {
   // --- 속도 ---
   const st = k.st;
   let vmax = C.maxSpeed * st.speed, acc = C.accel;
-  if (boosting) { vmax = C.boostSpeed * st.boost; acc = C.boostAccel; }
+  if (boosting) { vmax = (k.startB ? C.startSpeed : C.boostSpeed) * st.boost; acc = C.boostAccel; }
+  if (k.boostT <= 0) k.startB = false;
   else if (inst) { vmax = C.instSpeed * st.boost; acc = C.instAccel; }
   if (k.padT > 0) { k.padT -= dt; vmax = Math.max(vmax, C.boostSpeed * st.boost); acc = Math.max(acc, C.boostAccel); }
   if (k.draftCd > 0) k.draftCd -= dt;
@@ -351,7 +358,7 @@ function addGauge(k, g, ev, inf) {
 }
 
 // 출발 부스터: GO 직전·직후에 가속(또는 부스터 버튼)을 누르면 발동
-export function startBoost(k, inf) { k.boostT = C.startBoostTime; k.ev.boost = true; k.ev.start = true; if (inf) addGauge(k, 0.3, k.ev, true); }
+export function startBoost(k, inf) { k.boostT = C.startBoostTime; k.startB = true; k.ev.boost = true; k.ev.start = true; if (inf) addGauge(k, 0.3, k.ev, true); }
 // 드래프트 판정은 카트끼리의 위치가 필요해 경기 코드에서 부른다: behind = 앞 카트 바로 뒤에 붙어 있는가
 export function stepDraft(k, behind, dt, inf) {
   if (k.draftB > 0 || k.draftCd > 0) { k.draftT = 0; return false; }

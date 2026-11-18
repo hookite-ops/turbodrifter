@@ -14,15 +14,23 @@ export const ITEM_SVG = {
   missile: '<svg viewBox="0 0 24 24"><path fill="#ff5a4e" d="M20.5 3.5c-4 0-8 2-10.5 5.5L7 12l5 5 3-3c3.5-2.5 5.5-6.5 5.5-10.5z"/><path fill="#ffd23f" d="M7 12 3 13l2 2-2 4 4-2 2 2 1-4z"/><circle cx="15" cy="9" r="1.8" fill="#fff"/></svg>',
   magnet: '<svg viewBox="0 0 24 24"><path fill="#ff5a4e" d="M4 4h5v8a3 3 0 0 0 6 0V4h5v8a8 8 0 0 1-16 0z"/><path fill="#e8ecf5" d="M4 4h5v3H4zm11 0h5v3h-5z"/></svg>',
 };
-const HIT = { banana: { t: 1.1, kind: 'spin' }, missile: { t: 1.5, kind: 'flip' }, water: { t: 1.6, kind: 'bubble' } };
+// 원작: 바나나 밟으면 조작 불능 2초, 물폭탄 갇힘 2초(좌우 연타로 줄일 수 있음). 미사일 시간은 확인된 자료가 없어 1.5초
+const HIT = { banana: { t: 2, kind: 'spin' }, missile: { t: 1.5, kind: 'flip' }, water: { t: 2, kind: 'bubble' } };
 
-// 순위별 아이템 확률 (0 = 1등, 1 = 꼴등): 앞은 견제·방어, 뒤는 추격
-const W_FRONT = { boost: 14, banana: 34, shield: 24, water: 22, missile: 6, magnet: 0 };
-const W_BACK = { boost: 28, banana: 4, shield: 6, water: 12, missile: 30, magnet: 20 };
-function roll(rf) {
-  let sum = 0; const w = {};
-  for (const id of ITEM_IDS) { w[id] = W_FRONT[id] * (1 - rf) + W_BACK[id] * rf; sum += w[id]; }
-  let r = Math.random() * sum; for (const id of ITEM_IDS) { r -= w[id]; if (r <= 0) return id; }
+// 순위별 아이템 확률 — 원작(크레이지레이싱 카트라이더) 기준
+//  부스터: 중위 20% · 하위 60% / 자석: 상위 5% · 중위 8% · 하위 20% / 미사일: 중위 15%, 2~6위
+//  물폭탄: 2~6위 / 실드: 1~3위 / 바나나: 개인전 1위
+//  원작에만 있는 아이템(물파리·구름·천사 등) 몫은 같은 순위에서 나오는 우리 아이템에 비율대로 나눴다.
+const TIER_W = {
+  first: { banana: 50, shield: 45, magnet: 5 },
+  upper: { shield: 32, water: 32, missile: 31, magnet: 5 },
+  middle: { boost: 20, magnet: 8, missile: 15, water: 57 },
+  lower: { boost: 75, magnet: 25 },
+};
+export function tierOf(rank, n) { return rank === 1 ? 'first' : rank <= 3 ? 'upper' : rank > Math.max(3, n - 2) ? 'lower' : 'middle'; }
+function roll(tier) {
+  const w = TIER_W[tier]; let sum = 0; for (const id in w) sum += w[id];
+  let r = Math.random() * sum; for (const id in w) { r -= w[id]; if (r <= 0) return id; }
   return 'boost';
 }
 
@@ -81,13 +89,13 @@ export function makeItems(R, scene, net = null) {
   const stats = { get: 0, use: {}, hit: {}, block: 0 };
 
   const rankList = () => [...R.karts].sort((a, b) => b.k.prog - a.k.prog);
-  function rf(e) { const L = rankList(), n = L.length; return n <= 1 ? 0.5 : L.indexOf(e) / (n - 1); }
+  function tier(e) { const L = rankList(); return tierOf(L.indexOf(e) + 1, L.length); }
   function aheadOf(e) { const L = rankList(), i = L.indexOf(e); return i > 0 ? L[i - 1] : null; }
 
   function give(e) {
     const s = e.items || (e.items = []);
     if (s.length >= 2) return;
-    s.push(roll(rf(e))); e.itemHold = 0;
+    s.push(roll(tier(e))); e.itemHold = 0;
     sfxQ.push({ type: 'get', e }); stats.get++;
   }
   function hit(e, kind, uid) {
@@ -107,18 +115,18 @@ export function makeItems(R, scene, net = null) {
     else if (id === 'water') a = { s: +k.s.toFixed(1), lat: +k.lat.toFixed(2) };
     else if (id === 'missile') { const tg = aheadOf(e); a = { s: +(k.s + 2).toFixed(1), lap: k.lap, lat: +k.lat.toFixed(2), sp: +Math.max(48, k.speed + 18).toFixed(1), tg: tg ? tg.id : -1 }; }
     else a = {};
-    if (id === 'boost') { k.boostT = C.boostTime * 1.15; }
-    else if (id === 'magnet') { k.magT = 2.6; k.magTarget = aheadOf(e); }
+    if (id === 'boost') { k.boostT = 3; k.startB = false; }   // 원작 아이템전 부스터는 카트와 상관없이 3초
+    else if (id === 'magnet') { k.magT = 4; k.magTarget = aheadOf(e); }   // 원작 자석 4초
     spawn(e, id, uid, a);
     tell(e, { a: 'use', item: id, uid, ...a });
     return true;
   }
   // 아이템이 나타나는 부분 (내 것이든 받은 것이든 똑같이)
   function spawn(e, id, uid, a) {
-    if (id === 'shield') e.k.shieldT = 4;
+    if (id === 'shield') e.k.shieldT = 2;   // 원작 실드: 2초 동안 공격 1번 막기
     else if (id === 'banana') {
       const m = new THREE.Mesh(banGeo, banMat); m.position.set(a.x, a.y + 0.32, a.z); m.rotation.set(-Math.PI / 2, 0, Math.random() * 6); grp.add(m);
-      drops.push({ x: a.x, y: a.y, z: a.z, m, age: 0, owner: e, uid });
+      drops.push({ x: a.x, y: a.y, z: a.z, m, age: 0, owner: e, uid });   // 원작: 30초 동안 남음
       if (drops.length > 14) { const o = drops.shift(); grp.remove(o.m); }
     } else if (id === 'water') {
       const m = new THREE.Mesh(wbGeo, wbMat); grp.add(m);
@@ -166,7 +174,7 @@ export function makeItems(R, scene, net = null) {
     // 바나나 밟기
     for (let q = drops.length - 1; q >= 0; q--) {
       const d = drops[q]; d.age += dt; d.m.rotation.z += dt * 0.5;
-      let gone = d.age > 45;
+      let gone = d.age > 30;
       for (const e of R.karts) {
         if (e.remote || gone) continue;
         if (e === d.owner && d.age < 0.6) continue;
